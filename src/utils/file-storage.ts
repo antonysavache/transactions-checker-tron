@@ -1,52 +1,43 @@
-import fs from 'fs';
-import path from 'path';
 import { IProcessedTransaction } from '../types';
 import { transactionLogger } from './logger';
+import { transactionSheetsLogger } from './sheets-logger';
 
 export class FileStorage {
-  private resultsFile: string;
-  private isProduction: boolean;
-
-  constructor(fileName: string = 'transactions.txt') {
-    this.resultsFile = path.resolve(process.cwd(), fileName);
-    this.isProduction = process.env.NODE_ENV === 'production';
+  constructor() {
+    // Пустой конструктор, так как файлы не используются
   }
 
-  public saveTransactions(transactions: IProcessedTransaction[]): void {
+  public async saveTransactions(transactions: IProcessedTransaction[]): Promise<void> {
     if (!transactions || transactions.length === 0) {
-      transactionLogger.info('No transactions to save to file');
+      transactionLogger.info('No transactions to save');
       return;
     }
 
     try {
-      const formattedTransactions = transactions.map(tx => {
-        return `[${tx.date}] ${tx.fromAddress} -> ${tx.toAddress} | ${tx.amount} ${tx.ticker} | TxID: ${tx.id}`;
-      });
-
-      const timestamp = new Date().toISOString();
-      const header = `\n===== Transactions detected at ${timestamp} =====\n`;
+      // Только логируем информацию о транзакциях
+      transactionLogger.info('Successfully processed %d transactions', transactions.length);
       
-      const content = header + formattedTransactions.join('\n') + '\n';
-      
-      // В production среде (Railway) только логируем
-      if (this.isProduction) {
-        transactionLogger.info('Successfully processed %d transactions (not saving to file in production)', transactions.length);
-        // Можно вывести несколько транзакций для информации
-        if (transactions.length > 0) {
-          transactionLogger.info('Sample transaction: %s -> %s | %s %s', 
-            transactions[0].fromAddress, 
-            transactions[0].toAddress,
-            transactions[0].amount,
-            transactions[0].ticker);
+      // Логируем несколько транзакций для информации
+      if (transactions.length > 0) {
+        transactionLogger.info('Sample transaction: %s -> %s | %s %s', 
+          transactions[0].fromAddress, 
+          transactions[0].toAddress,
+          transactions[0].amount,
+          transactions[0].ticker);
+        
+        // Логируем в Google Sheets - добавляем обработку ошибок
+        try {
+          await transactionSheetsLogger.info('Processed %d transactions', transactions.length);
+        } catch (sheetError) {
+          // Если не удалось записать в Google Sheets, продолжаем работу
+          console.error(`Failed to log to Google Sheets: ${(sheetError as Error).message}`);
         }
-      } else {
-        // В dev среде пишем в файл
-        fs.appendFileSync(this.resultsFile, content);
-        transactionLogger.info('Successfully saved %d transactions to %s', transactions.length, this.resultsFile);
       }
     } catch (error) {
-      transactionLogger.error('Error saving transactions to file: %s', (error as Error).message);
-      throw error;
+      transactionLogger.error('Error processing transactions: %s', (error as Error).message);
+      // Не используем await, чтобы не прерывать работу при ошибке логирования
+      transactionSheetsLogger.error('Error processing transactions: %s', (error as Error).message)
+        .catch(logError => console.error(`Failed to log error to Google Sheets: ${logError.message}`));
     }
   }
 }

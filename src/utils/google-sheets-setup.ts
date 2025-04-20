@@ -1,5 +1,6 @@
 import { GoogleSheetsService } from '../services/google-sheets-service';
 import { apiLogger } from './logger';
+import { apiSheetsLogger } from './sheets-logger';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -42,11 +43,20 @@ async function setupGoogleSheets(): Promise<void> {
     // Initialize Google Sheets service
     const sheetsService = new GoogleSheetsService();
     await sheetsService.initialize();
+    
+    // Инициализируем логгер
+    await apiSheetsLogger.initialize();
+
+    // Записать первую запись в лог
+    await apiSheetsLogger.info('Sheets integration setup started');
 
     // Test connectivity by trying to fetch wallets
     const wallets = await sheetsService.getWallets();
     apiLogger.info('Successfully connected to Google Sheets!');
     apiLogger.info('Found %d wallets in the spreadsheet', wallets.length);
+    
+    // Запись в лог Google Sheets
+    await apiSheetsLogger.info('Connected to Google Sheets, found %d wallets', wallets.length);
 
     // Test writing to transactions sheet with a test record
     const testTransaction = {
@@ -63,7 +73,14 @@ async function setupGoogleSheets(): Promise<void> {
 
     await sheetsService.saveTransactions([testTransaction]);
     apiLogger.info('Successfully wrote test transaction to Google Sheets!');
+    await apiSheetsLogger.info('Test transaction saved successfully');
+    
+    // Тестирование логирования в листе logs
+    await sheetsService.saveLog(GoogleSheetsService.LogLevel.INFO, 'Test log entry');
+    apiLogger.info('Successfully wrote test log entry to Google Sheets!');
+    
     apiLogger.info('Google Sheets integration is properly configured and working!');
+    await apiSheetsLogger.info('Google Sheets integration setup completed successfully');
 
   } catch (error) {
     apiLogger.error('Error setting up Google Sheets: %s', (error as Error).message);

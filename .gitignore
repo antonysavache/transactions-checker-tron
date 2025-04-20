@@ -6,14 +6,7 @@
 /.pnp
 .pnp.js
 
-# Логи
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Данные окружения
+# Переменные окружения (содержат конфиденциальные данные)
 .env
 .env.local
 .env.development.local
@@ -39,6 +32,15 @@ Thumbs.db
 coverage
 .nyc_output
 
-# Пользовательские файлы
-*.backup
-*.bak
+# Файлы логов (больше не используются)
+/logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Файлы данных приложения (больше не используются)
+transactions.txt
+
+# PID файлы
+*.pid

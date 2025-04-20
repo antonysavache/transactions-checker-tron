@@ -1,5 +1,3 @@
-import fs from 'fs';
-import path from 'path';
 import { format } from 'util';
 
 enum LogLevel {
@@ -10,39 +8,19 @@ enum LogLevel {
 }
 
 export class Logger {
-  private logDir: string;
   private logFile: string;
-  private isProduction: boolean;
 
   constructor(logFile: string = 'app.log') {
-    this.logDir = path.resolve(process.cwd(), 'logs');
-    this.logFile = path.join(this.logDir, logFile);
-    this.isProduction = process.env.NODE_ENV === 'production';
-    
-    if (!this.isProduction) {
-      this.ensureLogDir();
-    }
-  }
-
-  private ensureLogDir(): void {
-    if (!fs.existsSync(this.logDir)) {
-      fs.mkdirSync(this.logDir, { recursive: true });
-    }
+    this.logFile = logFile;
+    // Не создаем директорию для логов, так как она больше не нужна
   }
 
   private writeLog(level: LogLevel, message: string, ...args: any[]): void {
     const timestamp = new Date().toISOString();
     const formattedMessage = args.length ? format(message, ...args) : message;
-    const logEntry = `[${timestamp}] [${level}] ${formattedMessage}\n`;
     
-    // В production среде (Railway) записываем только в консоль
-    if (this.isProduction) {
-      console.log(`[${level}] ${formattedMessage}`);
-    } else {
-      // В dev среде пишем и в файл, и в консоль
-      fs.appendFileSync(this.logFile, logEntry);
-      console.log(`[${level}] ${formattedMessage}`);
-    }
+    // Только вывод в консоль, без записи в файл
+    console.log(`[${timestamp}] [${level}] ${formattedMessage}`);
   }
 
   public info(message: string, ...args: any[]): void {

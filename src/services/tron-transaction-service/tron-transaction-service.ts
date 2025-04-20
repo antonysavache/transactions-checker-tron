@@ -97,13 +97,20 @@ export class TronTransactionService {
   private async _fetchTransactionsWithRetry(url: string, retryCount = 0): Promise<any> {
     try {
       apiLogger.debug('Making API request to %s', url);
-      const response = await axios.get(url);
+      
+      // Добавляем timeout к запросу, чтобы избежать зависания
+      const response = await axios.get(url, { timeout: 30000 });
+      
       apiLogger.debug('API request successful');
       return response.data;
     } catch (error) {
+      // Логируем ошибку и пытаемся повторить запрос
+      const isTimeout = error.code === 'ECONNABORTED' || (error.message && error.message.includes('timeout'));
+      
       if (retryCount < this.maxRetries) {
         const delay = Math.pow(2, retryCount) * this.requestDelay;
-        apiLogger.warn('API request failed, retrying after %dms (attempt %d/%d): %s', 
+        apiLogger.warn('API request failed (%s), retrying after %dms (attempt %d/%d): %s', 
+          isTimeout ? 'timeout' : 'error',
           delay, retryCount + 1, this.maxRetries, (error as Error).message);
         
         await new Promise(resolve => setTimeout(resolve, delay));

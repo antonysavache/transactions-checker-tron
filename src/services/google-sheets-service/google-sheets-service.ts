@@ -10,21 +10,35 @@ export interface IGoogleSheetsConfig {
   walletsRange?: string;
   transactionsSpreadsheetId?: string;
   transactionsRange?: string;
+  logsSpreadsheetId?: string;
+  logsRange?: string;
+}
+
+export enum LogLevel {
+  INFO = 'INFO',
+  ERROR = 'ERROR',
+  WARN = 'WARN',
+  DEBUG = 'DEBUG'
 }
 
 export class GoogleSheetsService {
+  public static LogLevel = LogLevel;
   private auth: JWT | null = null;
   private sheets: sheets_v4.Sheets | null = null;
   private walletsSpreadsheetId: string;
   private walletsRange: string;
   private transactionsSpreadsheetId: string;
   private transactionsRange: string;
+  private logsSpreadsheetId: string;
+  private logsRange: string;
 
   constructor(config: IGoogleSheetsConfig = {}) {
     this.walletsSpreadsheetId = config.walletsSpreadsheetId || process.env.GOOGLE_SHEETS_WALLETS_SPREADSHEET_ID || '';
     this.walletsRange = config.walletsRange || process.env.GOOGLE_SHEETS_WALLETS_RANGE || 'Sheet1!A2:A';
     this.transactionsSpreadsheetId = config.transactionsSpreadsheetId || process.env.GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID || '';
     this.transactionsRange = config.transactionsRange || process.env.GOOGLE_SHEETS_TRANSACTIONS_RANGE || 'Sheet1!A:H';
+    this.logsSpreadsheetId = config.logsSpreadsheetId || process.env.GOOGLE_SHEETS_LOGS_SPREADSHEET_ID || this.transactionsSpreadsheetId;
+    this.logsRange = config.logsRange || process.env.GOOGLE_SHEETS_LOGS_RANGE || 'logs!A:C';
     
     if (!this.walletsSpreadsheetId || !this.transactionsSpreadsheetId) {
       apiLogger.warn('GoogleSheetsService: Spreadsheet IDs not provided');
@@ -151,6 +165,45 @@ export class GoogleSheetsService {
     } catch (error) {
       apiLogger.error('Error saving transactions to Google Sheets: %s', (error as Error).message);
       throw error;
+    }
+  }
+
+  /**
+   * Save log entry to Google Sheets
+   * @param level Log level (INFO, ERROR, WARN, DEBUG)
+   * @param message Log message
+   */
+  public async saveLog(level: LogLevel, message: string): Promise<void> {
+    if (!this.sheets) {
+      // Cannot log to sheets if not initialized - just log to console
+      console.log(`[${level}] ${message}`);
+      return;
+    }
+    
+    try {
+      const timestamp = new Date().toISOString();
+      
+      // Log format: Timestamp | Log Level | Message
+      const logRow = [[timestamp, level, message]];
+      
+      await this.sheets.spreadsheets.values.append({
+        spreadsheetId: this.logsSpreadsheetId,
+        range: this.logsRange,
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: {
+          values: logRow
+        }
+      });
+      
+      // Also log to console for immediate feedback
+      console.log(`[${level}] ${message}`);
+    } catch (error) {
+      // If logging fails, just log to console and don't throw
+      console.error(`Failed to save log to Google Sheets: ${(error as Error).message}`);
+      console.log(`[${level}] ${message}`);
+      
+      // Do not re-throw the error to avoid breaking the application flow
     }
   }
 }

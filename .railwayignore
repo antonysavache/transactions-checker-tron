@@ -1,0 +1,25 @@
+# Игнорировать локальные файлы разработки
+/node_modules
+/.vscode
+/.idea
+/logs
+*.log
+npm-debug.log*
+
+# Игнорировать файлы окружения (они должны быть установлены в Railway)
+.env
+.env.*
+
+# Игнорировать временные файлы
+.DS_Store
+Thumbs.db
+.tmp
+.temp
+*.pid
+
+# Игнорировать тестовые файлы
+examples/
+test/
+jest.config.js
+*.test.ts
+*.spec.ts
