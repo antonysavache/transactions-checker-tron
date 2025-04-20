@@ -1,0 +1,42 @@
+{
+  "name": "true-transaction-spy",
+  "version": "1.0.0",
+  "description": "Service for monitoring TRON network transactions for specific wallets",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "scripts": {
+    "start": "node dist/index.js",
+    "start:monitor": "node dist/scheduler.js",
+    "start:prod": "npm run build && npm run start:monitor",
+    "clean": "rimraf dist",
+    "build": "npm run clean && tsc",
+    "dev": "ts-node src/index.ts",
+    "dev:monitor": "ts-node src/scheduler.ts",
+    "setup:sheets": "ts-node src/utils/google-sheets-setup.ts",
+    "watch": "tsc --watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "tron",
+    "blockchain",
+    "transactions",
+    "monitoring"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.7",
+    "dotenv": "^16.3.1",
+    "googleapis": "^148.0.0",
+    "moment": "^2.29.4",
+    "tronweb": "^5.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "rimraf": "^5.0.5",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.3.2"
+  }
+}
