@@ -103,7 +103,7 @@ export class TronTransactionService {
       
       apiLogger.debug('API request successful');
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       // Логируем ошибку и пытаемся повторить запрос
       const isTimeout = error.code === 'ECONNABORTED' || (error.message && error.message.includes('timeout'));
       
