@@ -143,8 +143,8 @@ export class GoogleSheetsService {
         tx.id, // D: Хеш транзакції
         tx.amount.toString(), // E: Сума
         tx.ticker, // F: Валюта (USDT/TRX)
-        tx.ticker === 'USDT' ? tx.amount.toString() : '', // G: Сума в дол (для USDT такая же сумма)
-        tx.status // H: Статус
+        tx.ticker === 'USDT' ? tx.amount.toString() : '' // G: Сума в дол (для USDT такая же сумма)
+        // Убираем статус, чтобы не отображать его в таблице
       ]);
       
       apiLogger.info('Saving %d transactions to Google Sheets: %s', 

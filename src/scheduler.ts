@@ -110,7 +110,7 @@ export class TransactionMonitor {
       
       const transactions = await monitorTransactions({
         wallets: walletsToMonitor,
-        timeIntervalHours: 1  // Устанавливаем 1 час для обычной работы
+        timeIntervalHours: 1  // Настраиваем на 1 час бесперерывной работы
       });
       
       apiLogger.info('Monitoring complete, found %d transactions', transactions.length);
