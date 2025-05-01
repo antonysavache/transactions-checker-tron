@@ -10,10 +10,12 @@ export class TransactionMonitor {
   private intervalHours: number;
   private googleSheetsService: GoogleSheetsService | null = null;
   private useGoogleSheets: boolean;
+  private network: 'TRON' | 'ETH' | 'ALL';
 
-  constructor(intervalHours: number = 1, useGoogleSheets: boolean = false) {
+  constructor(intervalHours: number = 1, useGoogleSheets: boolean = false, network: 'TRON' | 'ETH' | 'ALL' = 'TRON') {
     this.intervalHours = intervalHours;
     this.useGoogleSheets = useGoogleSheets;
+    this.network = network;
     
     if (this.useGoogleSheets) {
       this.initGoogleSheets();
@@ -40,11 +42,11 @@ export class TransactionMonitor {
   }
 
   public async start(): Promise<void> {
-    apiLogger.info('Starting transaction monitor, checking every %d hours', this.intervalHours);
+    apiLogger.info('Starting transaction monitor for %s network, checking every %d hours', this.network, this.intervalHours);
     
     // Логируем запуск в Google Sheets
     if (this.useGoogleSheets) {
-      await apiSheetsLogger.info('Starting transaction monitor, checking every %d hours', this.intervalHours);
+      await apiSheetsLogger.info('Starting transaction monitor for %s network, checking every %d hours', this.network, this.intervalHours);
     }
     
     await this.runMonitor();
@@ -68,27 +70,69 @@ export class TransactionMonitor {
 
   private async runMonitor(): Promise<void> {
     try {
-      // Determine which wallets to monitor (Google Sheets or config file)
-      let walletsToMonitor = MONITORED_WALLETS;
+      // Determine which wallets to monitor based on network type
+      let walletsToMonitor: string[] = [];
       
       if (this.useGoogleSheets && this.googleSheetsService) {
         try {
-          const googleWallets = await this.googleSheetsService.getWallets();
-          if (googleWallets.length > 0) {
-            walletsToMonitor = googleWallets;
-            apiLogger.info('Using %d wallets from Google Sheets', walletsToMonitor.length);
-            // Используем try-catch для логирования в Google Sheets
-            try {
-              await apiSheetsLogger.info('Using %d wallets from Google Sheets', walletsToMonitor.length);
-            } catch (logError) {
-              apiLogger.warn('Failed to log to Google Sheets: %s', (logError as Error).message);
+          // Получаем кошельки из соответствующих колонок в зависимости от сети
+          if (this.network === 'TRON') {
+            const tronWallets = await this.googleSheetsService.getWallets('TRON');
+            if (tronWallets.length > 0) {
+              walletsToMonitor = tronWallets;
+              apiLogger.info('Using %d TRON wallets from Google Sheets', walletsToMonitor.length);
+              try {
+                await apiSheetsLogger.info('Using %d TRON wallets from Google Sheets', walletsToMonitor.length);
+              } catch (logError) {
+                apiLogger.warn('Failed to log to Google Sheets: %s', (logError as Error).message);
+              }
+            } else {
+              apiLogger.warn('No TRON wallets found in Google Sheets, falling back to config file');
+              try {
+                await apiSheetsLogger.warn('No TRON wallets found in Google Sheets, falling back to config file');
+              } catch (logError) {
+                apiLogger.warn('Failed to log to Google Sheets: %s', (logError as Error).message);
+              }
+              walletsToMonitor = MONITORED_WALLETS.filter(wallet => wallet.startsWith('T'));
+            }
+          } else if (this.network === 'ETH') {
+            const ethWallets = await this.googleSheetsService.getWallets('ETH');
+            if (ethWallets.length > 0) {
+              walletsToMonitor = ethWallets;
+              apiLogger.info('Using %d ETH wallets from Google Sheets', walletsToMonitor.length);
+              try {
+                await apiSheetsLogger.info('Using %d ETH wallets from Google Sheets', walletsToMonitor.length);
+              } catch (logError) {
+                apiLogger.warn('Failed to log to Google Sheets: %s', (logError as Error).message);
+              }
+            } else {
+              apiLogger.warn('No ETH wallets found in Google Sheets, falling back to config file');
+              try {
+                await apiSheetsLogger.warn('No ETH wallets found in Google Sheets, falling back to config file');
+              } catch (logError) {
+                apiLogger.warn('Failed to log to Google Sheets: %s', (logError as Error).message);
+              }
+              walletsToMonitor = MONITORED_WALLETS.filter(wallet => wallet.startsWith('0x'));
             }
           } else {
-            apiLogger.warn('No wallets found in Google Sheets, falling back to config file');
-            try {
-              await apiSheetsLogger.warn('No wallets found in Google Sheets, falling back to config file');
-            } catch (logError) {
-              apiLogger.warn('Failed to log to Google Sheets: %s', (logError as Error).message);
+            // ALL - получаем оба типа кошельков
+            const allWallets = await this.googleSheetsService.getWallets();
+            if (allWallets.length > 0) {
+              walletsToMonitor = allWallets;
+              apiLogger.info('Using %d wallets from Google Sheets', walletsToMonitor.length);
+              try {
+                await apiSheetsLogger.info('Using %d wallets from Google Sheets', walletsToMonitor.length);
+              } catch (logError) {
+                apiLogger.warn('Failed to log to Google Sheets: %s', (logError as Error).message);
+              }
+            } else {
+              apiLogger.warn('No wallets found in Google Sheets, falling back to config file');
+              try {
+                await apiSheetsLogger.warn('No wallets found in Google Sheets, falling back to config file');
+              } catch (logError) {
+                apiLogger.warn('Failed to log to Google Sheets: %s', (logError as Error).message);
+              }
+              walletsToMonitor = MONITORED_WALLETS;
             }
           }
         } catch (error) {
@@ -98,6 +142,23 @@ export class TransactionMonitor {
           } catch (logError) {
             apiLogger.warn('Failed to log error to Google Sheets: %s', (logError as Error).message);
           }
+          // Фильтруем кошельки из конфиг-файла в зависимости от сети
+          if (this.network === 'TRON') {
+            walletsToMonitor = MONITORED_WALLETS.filter(wallet => wallet.startsWith('T'));
+          } else if (this.network === 'ETH') {
+            walletsToMonitor = MONITORED_WALLETS.filter(wallet => wallet.startsWith('0x'));
+          } else {
+            walletsToMonitor = MONITORED_WALLETS;
+          }
+        }
+      } else {
+        // Если Google Sheets не используется, берем кошельки из конфиг-файла
+        if (this.network === 'TRON') {
+          walletsToMonitor = MONITORED_WALLETS.filter(wallet => wallet.startsWith('T'));
+        } else if (this.network === 'ETH') {
+          walletsToMonitor = MONITORED_WALLETS.filter(wallet => wallet.startsWith('0x'));
+        } else {
+          walletsToMonitor = MONITORED_WALLETS;
         }
       }
       
@@ -110,12 +171,13 @@ export class TransactionMonitor {
       
       const transactions = await monitorTransactions({
         wallets: walletsToMonitor,
-        timeIntervalHours: 1  // Настраиваем на 1 час бесперерывной работы
+        timeIntervalHours: 1,
+        network: this.network
       });
       
-      apiLogger.info('Monitoring complete, found %d transactions', transactions.length);
+      apiLogger.info('Monitoring complete, found %d transactions in %s network(s)', transactions.length, this.network);
       try {
-        await apiSheetsLogger.info('Monitoring complete, found %d transactions', transactions.length);
+        await apiSheetsLogger.info('Monitoring complete, found %d transactions in %s network(s)', transactions.length, this.network);
       } catch (logError) {
         apiLogger.warn('Failed to log to Google Sheets: %s', (logError as Error).message);
       }
@@ -123,10 +185,45 @@ export class TransactionMonitor {
       // Сохраняем информацию о транзакциях
       await transactionStorage.saveTransactions(transactions);
       
-      // Сохраняем транзакции в Google Sheets
-      if (this.useGoogleSheets && this.googleSheetsService && transactions.length > 0) {
+      // Определяем правильный диапазон для сохранения транзакций в зависимости от сети
+      let transactionsRange = '';
+      if (this.network === 'TRON') {
+        transactionsRange = process.env.GOOGLE_SHEETS_TRANSACTIONS_RANGE || 'trans!A:H';
+      } else if (this.network === 'ETH') {
+        transactionsRange = process.env.GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE || 'trans-erc!A:I';
+      } else {
+        // Для 'ALL' сортируем транзакции по сети и сохраняем в соответствующие диапазоны
+        const tronTx = transactions.filter(tx => tx.network === 'TRON');
+        const ethTx = transactions.filter(tx => tx.network === 'ETH');
+        
+        if (tronTx.length > 0 && this.useGoogleSheets && this.googleSheetsService) {
+          try {
+            const tronRange = process.env.GOOGLE_SHEETS_TRANSACTIONS_RANGE || 'trans!A:H';
+            await this.googleSheetsService.saveTransactions(tronTx, tronRange);
+            apiLogger.info('%d TRON transactions saved to Google Sheets', tronTx.length);
+          } catch (error) {
+            apiLogger.error('Error saving TRON transactions to Google Sheets: %s', (error as Error).message);
+          }
+        }
+        
+        if (ethTx.length > 0 && this.useGoogleSheets && this.googleSheetsService) {
+          try {
+            const ethRange = process.env.GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE || 'trans-erc!A:I';
+            await this.googleSheetsService.saveTransactions(ethTx, ethRange);
+            apiLogger.info('%d ETH transactions saved to Google Sheets', ethTx.length);
+          } catch (error) {
+            apiLogger.error('Error saving ETH transactions to Google Sheets: %s', (error as Error).message);
+          }
+        }
+        
+        // После отдельного сохранения нет необходимости в общем сохранении
+        transactionsRange = '';
+      }
+      
+      // Сохраняем транзакции в Google Sheets только если не режим ALL или нужно сохранить в одну вкладку
+      if (this.useGoogleSheets && this.googleSheetsService && transactionsRange && transactions.length > 0) {
         try {
-          await this.googleSheetsService.saveTransactions(transactions);
+          await this.googleSheetsService.saveTransactions(transactions, transactionsRange);
           apiLogger.info('Transactions saved to Google Sheets');
           try {
             await apiSheetsLogger.info('Transactions saved to Google Sheets');
@@ -159,6 +256,9 @@ if (require.main === module) {
   // Check if Google Sheets integration is enabled
   const useGoogleSheets = process.env.GOOGLE_SHEETS_ENABLED === 'true';
   
+  // Определяем сеть для мониторинга
+  const network = (process.env.DEFAULT_NETWORK as 'TRON' | 'ETH' | 'ALL') || 'TRON';
+  
   // Объявляем монитор в глобальной области видимости
   let monitor: TransactionMonitor;
   
@@ -182,7 +282,7 @@ if (require.main === module) {
     apiSheetsLogger.initialize()
       .then(() => {
         // Запускаем монитор с Google Sheets
-        monitor = new TransactionMonitor(1, useGoogleSheets);
+        monitor = new TransactionMonitor(1, useGoogleSheets, network);
         monitor.start()
           .then(() => {
             process.on('SIGINT', () => handleShutdown('SIGINT'));
@@ -200,7 +300,7 @@ if (require.main === module) {
         
         // Запускаем монитор без Google Sheets как fallback
         apiLogger.info('Falling back to non-Google Sheets mode');
-        monitor = new TransactionMonitor(1, false);
+        monitor = new TransactionMonitor(1, false, network);
         monitor.start()
           .then(() => {
             process.on('SIGINT', () => handleShutdown('SIGINT'));
@@ -215,7 +315,7 @@ if (require.main === module) {
       });
   } else {
     // Запускаем монитор без Google Sheets
-    monitor = new TransactionMonitor(1, false);
+    monitor = new TransactionMonitor(1, false, network);
     monitor.start()
       .then(() => {
         process.on('SIGINT', () => handleShutdown('SIGINT'));

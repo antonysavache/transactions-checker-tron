@@ -3,10 +3,13 @@ import {
   IOutputConfig,
   IProcessedTransaction, 
   ITRC20Transaction, 
-  ITRXTransaction, 
+  ITRXTransaction,
+  IEthTransaction,
+  IERC20Transaction,
   ITransactionsResult 
 } from '../../types';
 import TronWeb from 'tronweb';
+import { ethers } from 'ethers';
 
 export class OutputAdapter {
   private includeRawData: boolean;
@@ -63,10 +66,21 @@ export class OutputAdapter {
   }
 
   private _mapTransaction(transaction: any): IProcessedTransaction | null {
+    // TRON транзакции
     if (transaction.token_info) {
       return this._mapTrc20Transaction(transaction as ITRC20Transaction);
     } else if (transaction.raw_data && transaction.raw_data.contract) {
       return this._mapTrxTransaction(transaction as ITRXTransaction);
+    }
+    
+    // ETH транзакции из Etherscan API
+    else if (transaction.hash && transaction.timeStamp) {
+      // ERC20 транзакции имеют поле tokenSymbol
+      if (transaction.tokenSymbol) {
+        return this._mapErc20Transaction(transaction as IERC20Transaction);
+      } else {
+        return this._mapEthTransaction(transaction as IEthTransaction);
+      }
     }
     
     return null;
@@ -98,7 +112,8 @@ export class OutputAdapter {
       amount: value,
       ticker: ticker,
       type: 'TRC20',
-      status: transaction.status || 'UNKNOWN'
+      status: transaction.status || 'UNKNOWN',
+      network: 'TRON'
     };
   }
 
@@ -127,7 +142,87 @@ export class OutputAdapter {
       amount: amount,
       ticker: 'TRX',
       type: 'TRX',
-      status: transaction.ret?.[0]?.contractRet || 'UNKNOWN'
+      status: transaction.ret?.[0]?.contractRet || 'UNKNOWN',
+      network: 'TRON'
+    };
+  }
+  
+  private _mapEthTransaction(transaction: IEthTransaction): IProcessedTransaction {
+    // Переводим значение из wei в ETH (1 ETH = 10^18 wei)
+    const amount = parseFloat(ethers.formatEther(transaction.value));
+    
+    // Timestamp в Etherscan API указан в секундах
+    const timestamp = parseInt(transaction.timeStamp) * 1000;
+    
+    // Определяем статус транзакции
+    const status = transaction.txreceipt_status === '1' || transaction.isError === '0' 
+      ? 'SUCCESS' 
+      : transaction.isError === '1' ? 'FAIL' : 'UNKNOWN';
+    
+    return {
+      id: transaction.hash,
+      timestamp: timestamp,
+      date: moment(timestamp).format('YYYY-MM-DD HH:mm:ss'),
+      fromAddress: transaction.from,
+      toAddress: transaction.to,
+      amount: amount,
+      ticker: 'ETH',
+      type: 'ETH',
+      status: status,
+      network: 'ETH'
+    };
+  }
+  
+  private _mapErc20Transaction(transaction: IERC20Transaction): IProcessedTransaction | null {
+    // Проверка адреса контракта для подтверждения, что это настоящий USDT или USDC
+    const validTokenContracts = {
+      // Официальные адреса токенов (в нижнем регистре)
+      'usdt': '0xdac17f958d2ee523a2206206994597c13d831ec7',  // Tether USD
+      'usdc': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',  // USD Coin
+    };
+    
+    // Проверяем, что это один из официальных токенов
+    const contractAddress = transaction.contractAddress.toLowerCase();
+    let isValidToken = false;
+    let validTokenSymbol = '';
+    
+    // Проверяем соответствие адреса контракта
+    if (contractAddress === validTokenContracts['usdt']) {
+      isValidToken = true;
+      validTokenSymbol = 'USDT';
+    } else if (contractAddress === validTokenContracts['usdc']) {
+      isValidToken = true;
+      validTokenSymbol = 'USDC';
+    }
+    
+    // Если это не USDT или USDC, пропускаем транзакцию
+    if (!isValidToken) {
+      return null;
+    }
+    
+    // Преобразование значения с учетом decimals токена
+    const decimals = parseInt(transaction.tokenDecimal);
+    const amount = parseFloat(transaction.value) / Math.pow(10, decimals);
+    
+    // Timestamp в Etherscan API указан в секундах
+    const timestamp = parseInt(transaction.timeStamp) * 1000;
+    
+    // Определяем статус транзакции
+    const status = transaction.txreceipt_status === '1' || transaction.isError === '0' 
+      ? 'SUCCESS' 
+      : transaction.isError === '1' ? 'FAIL' : 'UNKNOWN';
+    
+    return {
+      id: transaction.hash,
+      timestamp: timestamp,
+      date: moment(timestamp).format('YYYY-MM-DD HH:mm:ss'),
+      fromAddress: transaction.from,
+      toAddress: transaction.to,
+      amount: amount,
+      ticker: validTokenSymbol, // Используем проверенный символ токена
+      type: 'ERC20',
+      status: status,
+      network: 'ETH'
     };
   }
 

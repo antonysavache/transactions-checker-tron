@@ -1,7 +1,7 @@
 {
   "name": "true-transaction-spy",
   "version": "1.0.0",
-  "description": "Service for monitoring TRON network transactions for specific wallets",
+  "description": "Service for monitoring TRON and Ethereum network transactions for specific wallets",
   "main": "dist/index.js",
   "engines": {
     "node": ">=16.0.0"
@@ -9,11 +9,16 @@
   "scripts": {
     "start": "node dist/index.js",
     "start:monitor": "node dist/scheduler.js",
+    "start:all": "node dist/run-all-monitors.js",
+    "start:eth": "node dist/run-eth-monitor.js",
     "start:prod": "npm run build && node dist/scheduler.js",
     "clean": "rimraf dist",
     "build": "npm run clean && tsc",
     "dev": "ts-node src/index.ts",
     "dev:monitor": "ts-node src/scheduler.ts",
+    "dev:all": "ts-node src/run-all-monitors.ts",
+    "dev:eth": "ts-node src/run-eth-monitor.ts",
+    "test:eth": "ts-node src/eth-test.ts",
     "setup:sheets": "ts-node src/utils/google-sheets-setup.ts",
     "watch": "tsc --watch",
     "postinstall": "npm run build",
@@ -21,6 +26,8 @@
   },
   "keywords": [
     "tron",
+    "ethereum",
+    "eth",
     "blockchain",
     "transactions",
     "monitoring"
@@ -30,6 +37,7 @@
   "dependencies": {
     "axios": "^1.6.7",
     "dotenv": "^16.3.1",
+    "ethers": "5.7.2",
     "googleapis": "^148.0.0",
     "moment": "^2.29.4",
     "tronweb": "^5.3.1"

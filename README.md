@@ -1,117 +1,138 @@
-# True Transaction Spy
+# Transactions Checker для TRON и Ethereum
 
-Сервис для мониторинга транзакций в сети TRON для определенных кошельков с интеграцией Google Sheets.
+Сервис для мониторинга транзакций в блокчейнах TRON и Ethereum с записью результатов в Google Sheets.
 
-## Особенности
+## Основные возможности
 
-- Отслеживание транзакций TRX и TRC20 токенов
-- Интеграция с Google Sheets для получения списка кошельков
-- Автоматическая запись транзакций в Google Sheets
-- Периодическое сканирование с настраиваемым интервалом
-- Логирование всех операций в Google Sheets
+- Мониторинг TRON-транзакций (TRX и TRC20 токены)
+- Мониторинг Ethereum-транзакций (ETH и ERC20 токены: USDT, USDC)
+- Интеграция с Google Sheets для сохранения результатов
+- Автоматическое выполнение по расписанию
+- Легко настраиваемый через конфигурационные файлы
 
 ## Требования
 
 - Node.js 16+
-- Учетные данные Google API (сервисный аккаунт)
-- Доступ к таблице Google Sheets
+- Доступ к Google Sheets API (сервисный аккаунт)
+- Etherscan API ключ для Ethereum
+- Доступ к TRON API
 
-## Установка
+## Установка и запуск локально
 
+1. Клонировать репозиторий
 ```bash
-# Клонировать репозиторий
-git clone <repository-url>
-cd true-transaction-spy
+git clone https://github.com/yourusername/transactions-checker.git
+cd transactions-checker
+```
 
-# Установить зависимости
+2. Установить зависимости
+```bash
 npm install
-
-# Создать .env файл
-cp .env.example .env
-# Отредактировать .env файл, добавив учетные данные Google Sheets и другие настройки
 ```
 
-## Запуск
-
-### Локально
-
+3. Скопировать `.env.example` в `.env` и заполнить все необходимые переменные
 ```bash
-# Запуск с мониторингом каждый час
-npm run dev:monitor
-
-# Запуск разового сканирования
-npm run dev
+cp .env.example .env
 ```
 
-### В производственной среде (Railway)
+4. Сборка проекта
+```bash
+npm run build
+```
 
-Для запуска в Railway, необходимо:
+5. Запуск
+```bash
+# Мониторинг обеих сетей
+npm run start:all
 
-1. Создать новый проект на Railway
-2. Подключить ваш Git-репозиторий
-3. Добавить необходимые переменные окружения в настройках проекта
-4. Railway автоматически запустит мониторинг с помощью указанного в `Procfile` скрипта
+# Мониторинг только TRON
+npm run start:monitor
 
-## Переменные окружения
+# Мониторинг только Ethereum
+npm run start:eth
+```
+
+## Настройка
+
+Основная настройка производится через файл `.env`:
 
 ```
-# API URL для сети TRON
+# API URLs
 TRON_API_URL=https://api.trongrid.io
+ETH_API_URL=https://api.etherscan.io/api
+ETH_API_KEY=your_api_key_here
 
-# Задержка между запросами в миллисекундах
+# Параметры по умолчанию
+DEFAULT_NETWORK=ALL
 REQUEST_DELAY=300
-
-# Максимальное количество повторных попыток при ошибке
 MAX_RETRIES=3
-
-# Интервал времени по умолчанию в часах
 DEFAULT_TIME_INTERVAL=1
 
-# Google Sheets интеграция
+# Google Sheets
 GOOGLE_SHEETS_ENABLED=true
-
-# Учетные данные Google сервисного аккаунта (JSON)
 GOOGLE_SHEETS_CREDENTIALS={"type":"service_account",...}
-
-# ID Google таблицы с кошельками и диапазон ячеек
-GOOGLE_SHEETS_WALLETS_SPREADSHEET_ID=your-spreadsheet-id
+GOOGLE_SHEETS_WALLETS_SPREADSHEET_ID=your_spreadsheet_id
 GOOGLE_SHEETS_WALLETS_RANGE=wallets!A:A
-
-# ID Google таблицы с транзакциями и диапазон ячеек
-GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID=your-spreadsheet-id
+GOOGLE_SHEETS_ETH_WALLETS_RANGE=wallets!B:B
+GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID=your_spreadsheet_id
 GOOGLE_SHEETS_TRANSACTIONS_RANGE=trans!A:H
-
-# ID Google таблицы с логами и диапазон ячеек (используется та же таблица)
-GOOGLE_SHEETS_LOGS_SPREADSHEET_ID=your-spreadsheet-id
+GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE=trans-erc!A:I
+GOOGLE_SHEETS_LOGS_SPREADSHEET_ID=your_spreadsheet_id
 GOOGLE_SHEETS_LOGS_RANGE=logs!A:C
 ```
 
-## Структура таблицы Google Sheets
+## Мониторинг адресов
 
-Для работы сервиса, таблица Google Sheets должна содержать следующие листы:
+Адреса для мониторинга можно указать двумя способами:
+1. В файле `src/config/wallets.ts`
+2. В Google Sheets в указанном диапазоне (если включена интеграция с Google Sheets)
 
-1. **wallets** - лист с адресами кошельков для мониторинга
-   - Столбец A: адреса кошельков TRON
+## Запуск по расписанию
 
-2. **trans** - лист для записи найденных транзакций
-   - Столбец A: Дата
-   - Столбец B: Гаманець, звідки прийшло
-   - Столбец C: Гаманець, куди прийшло
-   - Столбец D: Хеш транзакції
-   - Столбец E: Сума (USDT/TRX)
-   - Столбец F: Валюта (USDT/TRX)
-   - Столбец G: Сума в дол
-   - Столбец H: Статус
+Для автоматического запуска по расписанию, вы можете использовать:
+- cron на Linux/Unix
+- Windows Task Scheduler на Windows
+- Railway Cron Jobs для деплоя на Railway
 
-3. **logs** - лист для логирования работы сервиса
-   - Столбец A: Время (UTC)
-   - Столбец B: Уровень логирования (INFO, ERROR, WARN, DEBUG)
-   - Столбец C: Сообщение
+## Деплой на Railway
 
-## Настройка для Railway
+Для деплоя на Railway, обратитесь к файлу [RAILWAY.md](RAILWAY.md).
 
-1. Создайте проект на Railway.app
-2. Подключите ваш Git-репозиторий
-3. Добавьте все необходимые переменные окружения (см. раздел выше)
-4. Включите опцию "Always On" для непрерывной работы
-5. Сервис будет автоматически запущен и будет мониторить транзакции каждый час
+## Структура проекта
+
+```
+src/
+  ├── adapters/            # Адаптеры ввода/вывода
+  ├── config/              # Конфигурация
+  ├── services/            # Сервисы для работы с блокчейнами и Google Sheets
+  ├── types/               # TypeScript типы
+  ├── utils/               # Утилиты
+  ├── index.ts             # Главная точка входа
+  ├── scheduler.ts         # Запуск по расписанию
+  ├── run-all-monitors.ts  # Запуск мониторинга всех сетей
+  └── run-eth-monitor.ts   # Запуск мониторинга только Ethereum
+```
+
+## Тестирование
+
+```bash
+# Тест ETH интеграции
+npm run test:eth
+
+# Тест за 48 часов (вместо стандартного 1 часа)
+npx ts-node src/test-48h-monitor.ts
+
+# Тест ETH за 48 часов
+npx ts-node src/test-eth-48h-monitor.ts
+```
+
+## Логирование
+
+Логирование выполняется в:
+1. Консоль (при локальном запуске)
+2. Google Sheets (если включена интеграция)
+3. Логи Railway (при деплое на Railway)
+
+## Лицензия
+
+[ISC](LICENSE)

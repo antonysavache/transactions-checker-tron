@@ -68,7 +68,8 @@ async function setupGoogleSheets(): Promise<void> {
       amount: 100,
       ticker: 'USDT',
       type: 'TEST',
-      status: 'SUCCESS'
+      status: 'SUCCESS',
+      network: 'TRON' as 'TRON' // Указываем тип явно
     };
 
     await sheetsService.saveTransactions([testTransaction]);

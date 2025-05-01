@@ -2,9 +2,11 @@ import { IInputConfig, IMonitoringData, ISourceData } from '../../types';
 
 export class InputAdapter {
   private readonly defaultTimeIntervalHours: number;
+  private readonly defaultNetwork: 'TRON' | 'ETH' | 'ALL';
 
   constructor(options: IInputConfig = {}) {
     this.defaultTimeIntervalHours = options.defaultTimeIntervalHours || 1;
+    this.defaultNetwork = options.defaultNetwork || 'TRON';
   }
 
   public getMonitoringData(source: ISourceData): IMonitoringData {
@@ -14,13 +16,15 @@ export class InputAdapter {
 
     const wallets = this._extractWallets(source);  
     const timeFrame = this._extractTimeFrame(source);
+    const network = source.network || this.defaultNetwork;
 
     return {
       wallets,
       timeFrame: {
         startTime: timeFrame.startTime,
         endTime: timeFrame.endTime
-      }
+      },
+      network
     };
   }
 
