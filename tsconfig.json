@@ -14,9 +14,6 @@
     "paths": {
       "@core/*": ["src/core/*"],
       "@shared/*": ["src/shared/*"],
-      "@mock/*": ["src/mock/*"],
-      "@eth/*": ["src/eth/*"],
-      "@tron/*": ["src/tron/*"],
       "@/*": ["src/*"]
     },
     "typeRoots": ["./node_modules/@types", "./src/types"],
