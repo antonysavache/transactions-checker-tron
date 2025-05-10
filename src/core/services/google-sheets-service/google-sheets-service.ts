@@ -1,7 +1,11 @@
+/**
+ * Сервис для работы с Google Sheets
+ */
+import { Injectable } from '@nestjs/common';
 import { google, sheets_v4 } from 'googleapis';
 import { JWT } from 'google-auth-library';
+import { IProcessedTransaction } from '../../types';
 import {apiLogger} from "@shared/utils/logger";
-import {IProcessedTransaction} from "@core/types";
 
 export interface IGoogleSheetsConfig {
   credentialsFile?: string;
@@ -23,6 +27,7 @@ export enum LogLevel {
   DEBUG = 'DEBUG'
 }
 
+@Injectable()
 export class GoogleSheetsService {
   public static LogLevel = LogLevel;
   private auth: JWT | null = null;
@@ -35,6 +40,7 @@ export class GoogleSheetsService {
   private ethTransactionsRange: string;
   private logsSpreadsheetId: string;
   private logsRange: string;
+  private initialized: boolean = false;
 
   constructor(config: IGoogleSheetsConfig = {}) {
     this.walletsSpreadsheetId = config.walletsSpreadsheetId || process.env.GOOGLE_SHEETS_WALLETS_SPREADSHEET_ID || '';
@@ -42,7 +48,7 @@ export class GoogleSheetsService {
     this.ethWalletsRange = config.ethWalletsRange || process.env.GOOGLE_SHEETS_ETH_WALLETS_RANGE || 'wallets!B:B';
     this.transactionsSpreadsheetId = config.transactionsSpreadsheetId || process.env.GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID || '';
     this.transactionsRange = config.transactionsRange || process.env.GOOGLE_SHEETS_TRANSACTIONS_RANGE || 'trans!A:H';
-    this.ethTransactionsRange = config.ethTransactionsRange || process.env.GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE || 'trans-erc!A:I';
+    this.ethTransactionsRange = config.ethTransactionsRange || process.env.GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE || 'trans-erc!A:K';
     this.logsSpreadsheetId = config.logsSpreadsheetId || process.env.GOOGLE_SHEETS_LOGS_SPREADSHEET_ID || this.transactionsSpreadsheetId;
     this.logsRange = config.logsRange || process.env.GOOGLE_SHEETS_LOGS_RANGE || 'logs!A:C';
     
@@ -52,10 +58,23 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Проверяет, инициализирован ли сервис, и если нет - инициализирует
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+  }
+
+  /**
    * Initialize Google Sheets API client
    * @param credentialsJson JSON string with service account credentials
    */
   public async initialize(credentialsJson?: string): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+    
     try {
       let credentials: any;
       
@@ -74,6 +93,7 @@ export class GoogleSheetsService {
       });
       
       this.sheets = google.sheets({ version: 'v4', auth: this.auth });
+      this.initialized = true;
       
       apiLogger.info('GoogleSheetsService initialized successfully');
     } catch (error) {
@@ -87,7 +107,9 @@ export class GoogleSheetsService {
    * @param network Optional network type to filter wallets (TRON or ETH)
    * @returns Array of wallet addresses
    */
-  public async getWallets(network?: 'TRON' | 'ETH'): Promise<string[]> {
+  public async getWallets(network?: 'TRON' | 'ETH' | 'MOCK'): Promise<string[]> {
+    await this.ensureInitialized();
+    
     if (!this.sheets) {
       throw new Error('GoogleSheetsService not initialized');
     }
@@ -137,15 +159,39 @@ export class GoogleSheetsService {
         apiLogger.info('Successfully fetched %d TRON wallets from Google Sheets', wallets.length);
         
         return wallets;
+      } else if (network === 'MOCK') {
+        // Для MOCK используем третью колонку (С)
+        const mockWalletsRange = 'wallets!C:C';
+        
+        apiLogger.info('Fetching MOCK wallets from Google Sheets: %s range %s', 
+          this.walletsSpreadsheetId, mockWalletsRange);
+        
+        const response = await this.sheets.spreadsheets.values.get({
+          spreadsheetId: this.walletsSpreadsheetId,
+          range: mockWalletsRange,
+        });
+        
+        const values = response.data.values || [];
+        
+        // Извлекаем адреса MOCK-кошельков (один кошелек на строку)
+        const wallets = values
+          .map(row => row[0]?.toString().trim())
+          .filter(wallet => wallet && wallet.length > 0 && !wallet.startsWith('#'));
+        
+        apiLogger.info('Successfully fetched %d MOCK wallets from Google Sheets', wallets.length);
+        
+        return wallets;
       } else {
         // Если сеть не указана, получаем все кошельки
         const tronWallets = await this.getWallets('TRON');
         const ethWallets = await this.getWallets('ETH');
+        const mockWallets = await this.getWallets('MOCK');
         
-        apiLogger.info('Successfully fetched %d total wallets from Google Sheets (%d TRON, %d ETH)', 
-          tronWallets.length + ethWallets.length, tronWallets.length, ethWallets.length);
+        apiLogger.info('Successfully fetched %d total wallets from Google Sheets (%d TRON, %d ETH, %d MOCK)', 
+          tronWallets.length + ethWallets.length + mockWallets.length, 
+          tronWallets.length, ethWallets.length, mockWallets.length);
         
-        return [...tronWallets, ...ethWallets];
+        return [...tronWallets, ...ethWallets, ...mockWallets];
       }
     } catch (error) {
       apiLogger.error('Error fetching wallets from Google Sheets: %s', (error as Error).message);
@@ -156,9 +202,11 @@ export class GoogleSheetsService {
   /**
    * Save transactions to Google Sheets
    * @param transactions Array of processed transactions
-   * @param customRange Optional custom range to save transactions (overrides default range)
+   * @param network Network type to determine the range ('ETH', 'TRON', 'MOCK')
    */
-  public async saveTransactions(transactions: IProcessedTransaction[], customRange?: string): Promise<void> {
+  public async saveTransactions(transactions: IProcessedTransaction[], network: string): Promise<void> {
+    await this.ensureInitialized();
+    
     if (!this.sheets) {
       throw new Error('GoogleSheetsService not initialized');
     }
@@ -172,12 +220,23 @@ export class GoogleSheetsService {
       return;
     }
     
-    const range = customRange || this.transactionsRange;
-    const isEthSheet = range.toLowerCase().includes('erc') || transactions[0]?.network === 'ETH';
+    // Определяем диапазон в зависимости от сети
+    let range;
+    if (network === 'ETH') {
+      range = this.ethTransactionsRange;
+    } else if (network === 'TRON') {
+      range = this.transactionsRange;
+    } else if (network === 'MOCK') {
+      range = 'trans-mock!A:K';
+    } else {
+      range = this.transactionsRange;
+    }
+    
+    const isEthSheet = range.toLowerCase().includes('erc') || network === 'ETH';
     
     try {
       // Convert transactions to rows for the sheet according to the headers
-      // Для ETH транзакций (trans-erc):
+      // Для ETH и MOCK транзакций (trans-erc, trans-mock):
       // A: Дата, B: Гаманець, звідки прийшло, C: Гаманець, куди прийшло, D: Хеш транзакції
       // E: Сума (USDT/ETH/ERC20), F: Валюта (USDT/ETH/ERC20), G: Сума в дол, H: Статус, I: Сеть, J: Комиссия, K: Валюта комиссии
       const rows = transactions.map(tx => {
@@ -195,11 +254,11 @@ export class GoogleSheetsService {
           tx.ticker, // F: Валюта (USDT/TRX/ETH/ERC20)
           usdAmount, // G: Сума в дол (числовой формат для USDT/USDC)
           tx.status, // H: Статус
-          tx.network // I: Сеть (TRON/ETH)
+          tx.network // I: Сеть (TRON/ETH/MOCK)
         ];
         
         // Если это ETH транзакции и в транзакции есть комиссия, добавляем комиссию
-        if (isEthSheet && tx.fee !== undefined) {
+        if ((isEthSheet || network === 'MOCK') && tx.fee !== undefined) {
           return [
             ...baseRow,
             tx.fee, // J: Комиссия
@@ -237,6 +296,8 @@ export class GoogleSheetsService {
    * @param message Log message
    */
   public async saveLog(level: LogLevel, message: string): Promise<void> {
+    await this.ensureInitialized();
+    
     if (!this.sheets) {
       // Cannot log to sheets if not initialized - just log to console
       console.log(`[${level}] ${message}`);

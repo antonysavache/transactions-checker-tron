@@ -1,7 +1,10 @@
+/**
+ * Сервис для работы с Google Sheets
+ */
 import { google, sheets_v4 } from 'googleapis';
 import { JWT } from 'google-auth-library';
-import {apiLogger} from "@shared/utils/logger";
-import {IProcessedTransaction} from "@core/types";
+import { IProcessedTransaction } from '../../../core/types';
+import { apiLogger } from '../../utils/logger';
 
 export interface IGoogleSheetsConfig {
   credentialsFile?: string;
@@ -42,7 +45,7 @@ export class GoogleSheetsService {
     this.ethWalletsRange = config.ethWalletsRange || process.env.GOOGLE_SHEETS_ETH_WALLETS_RANGE || 'wallets!B:B';
     this.transactionsSpreadsheetId = config.transactionsSpreadsheetId || process.env.GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID || '';
     this.transactionsRange = config.transactionsRange || process.env.GOOGLE_SHEETS_TRANSACTIONS_RANGE || 'trans!A:H';
-    this.ethTransactionsRange = config.ethTransactionsRange || process.env.GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE || 'trans-erc!A:I';
+    this.ethTransactionsRange = config.ethTransactionsRange || process.env.GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE || 'trans-erc!A:K';
     this.logsSpreadsheetId = config.logsSpreadsheetId || process.env.GOOGLE_SHEETS_LOGS_SPREADSHEET_ID || this.transactionsSpreadsheetId;
     this.logsRange = config.logsRange || process.env.GOOGLE_SHEETS_LOGS_RANGE || 'logs!A:C';
     

@@ -1,27 +1,17 @@
 {
-  "name": "true-transaction-spy",
+  "name": "transaction-monitoring-service",
   "version": "1.0.0",
-  "description": "Service for monitoring TRON and Ethereum network transactions for specific wallets",
-  "main": "dist/index.js",
+  "description": "Service for monitoring blockchain transactions in ETH, TRON, and other networks",
+  "main": "dist/main.js",
   "engines": {
     "node": ">=16.0.0"
   },
   "scripts": {
-    "start": "node dist/index.js",
-    "start:monitor": "node dist/scheduler.js",
-    "start:all": "node dist/run-all-monitors.js",
-    "start:eth": "node dist/run-eth-monitor.js",
-    "start:prod": "npm run build && node dist/scheduler.js",
+    "start": "node dist/main.js",
     "clean": "rimraf dist",
     "build": "npm run clean && tsc",
-    "dev": "ts-node src/index.ts",
-    "dev:monitor": "ts-node src/scheduler.ts",
-    "dev:all": "ts-node src/run-all-monitors.ts",
-    "dev:eth": "ts-node src/run-eth-monitor.ts",
-    "test:eth": "ts-node src/eth-test.ts",
-    "setup:sheets": "ts-node src/utils/google-sheets-setup.ts",
+    "dev": "ts-node -r tsconfig-paths/register src/main.ts",
     "watch": "tsc --watch",
-    "postinstall": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -35,17 +25,24 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@nestjs/common": "^10.3.6",
+    "@nestjs/core": "^10.3.6",
     "axios": "^1.6.7",
     "dotenv": "^16.3.1",
     "ethers": "^6.0.0",
     "googleapis": "^148.0.0",
     "moment": "^2.29.4",
-    "tronweb": "^5.3.1"
+    "reflect-metadata": "^0.2.1",
+    "rxjs": "^7.8.1",
+    "tronweb": "^5.3.1",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@types/uuid": "^9.0.0",
     "rimraf": "^5.0.5",
     "ts-node": "^10.9.1",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.3.2"
   }
 }

@@ -1,0 +1,11 @@
+/**
+ * Список TRON кошельков для мониторинга
+ */
+export const MONITORED_TRON_WALLETS = [
+  'TPmJwoz7Wa8Dgc4v6685ujYT4FsMpNY6NE',
+  'TDZDkLmMRX23kQz1H8vooiSxxuPaJL5bcc',
+  'TLpReiKYkqW9oSMDt7BRbZK2AfNYbnASpA',
+  'TXQRQQvSRN14T4TwZVhjEmLFCyjDzKJLXb',
+  'TUMjPvvsB9tzZoYQoJBZjhtdjBm7rW3EZp',
+  'THiX1FfMHBRahQ7m5NV5SQ8r2ZzvjKTyT8'
+];

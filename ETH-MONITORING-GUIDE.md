@@ -34,6 +34,8 @@
    - Колонка G: Сума в дол
    - Колонка H: Статус
    - Колонка I: Сеть
+   - Колонка J: Комиссия (Transaction Fee)
+   - Колонка K: Валюта комиссии (ETH)
 
 4. **logs** - лист для логирования работы сервиса:
    - Колонка A: Время (UTC)
@@ -63,7 +65,7 @@ GOOGLE_SHEETS_WALLETS_RANGE=wallets!A:A
 GOOGLE_SHEETS_ETH_WALLETS_RANGE=wallets!B:B
 GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID=id-вашей-таблицы
 GOOGLE_SHEETS_TRANSACTIONS_RANGE=trans!A:H
-GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE=trans-erc!A:I
+GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE=trans-erc!A:K
 GOOGLE_SHEETS_LOGS_SPREADSHEET_ID=id-вашей-таблицы
 GOOGLE_SHEETS_LOGS_RANGE=logs!A:C
 ```

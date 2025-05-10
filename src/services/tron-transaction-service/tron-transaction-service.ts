@@ -1,7 +1,8 @@
 import axios from 'axios';
 import TronWeb from 'tronweb';
-import { ITronServiceConfig, ITransactionsResult } from '../../types';
-import { apiLogger } from '../../utils/logger';
+import {ITronServiceConfig} from "@tron/types";
+import {apiLogger} from "@shared/utils/logger";
+import {ITransactionsResult} from "@core/types";
 
 export class TronTransactionService {
   private apiUrl: string;

@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { ethers } from 'ethers';
-import { IEthServiceConfig, ITransactionsResult } from '../../types';
-import { apiLogger } from '../../utils/logger';
+import {apiLogger} from "@shared/utils/logger";
+import {IEthServiceConfig} from "@eth/types";
+import {ITransactionsResult} from "@core/types";
 
 export class EthTransactionService {
   private apiUrl: string;
