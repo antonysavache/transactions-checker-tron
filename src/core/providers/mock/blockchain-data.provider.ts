@@ -6,8 +6,8 @@ import {IBlockchainDataProvider} from "@shared/models/blockchain-data-provider.i
 
 @Injectable()
 export class MockBlockchainDataProvider implements IBlockchainDataProvider {
-    fetch(wallets: string[]): Observable<CompleteTransaction[]> {
-        console.log('MockBlockchainDataProvider: Generating mock transactions for wallets:', wallets);
+    fetch(wallets: string[], intervalHours: number = 24): Observable<CompleteTransaction[]> {
+        console.log(`MockBlockchainDataProvider: Generating mock transactions for ${wallets.length} wallets (looking back ${intervalHours} hours)`);
         
         if (!wallets || wallets.length === 0) {
             console.log('MockBlockchainDataProvider: No wallets provided, using default wallets');
@@ -30,9 +30,19 @@ export class MockBlockchainDataProvider implements IBlockchainDataProvider {
             walletSender: '2',
             walletReceiver: '3',
             hash: '4',
-            amount: 0,
+            amount: 10.5, // Числовое значение
             currency: '5'
-        })
+        });
+
+        // Добавляем мок-транзакцию с комиссией
+        mockTransactions.push({
+            data: '1',
+            walletSender: '2',
+            walletReceiver: '3',
+            hash: '4', // Тот же хеш, что и у основной транзакции
+            amount: 0.001, // Числовое значение
+            currency: 'TRX_FEE'
+        });
 
         return mockTransactions;
     }
@@ -50,7 +60,8 @@ export class MockBlockchainDataProvider implements IBlockchainDataProvider {
         const minutes = pad(date.getMinutes());
         const seconds = pad(date.getSeconds());
         
-        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        // Используем апостроф в начале, чтобы Google Sheets точно распознал как текст
+        return `'${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
     }
     
     /**

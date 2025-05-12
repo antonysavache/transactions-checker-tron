@@ -19,16 +19,33 @@ export class GoogleSheetsService implements IGoogleSheetsService {
   
   initialize(): Observable<void> {
     if (this.initialized) {
+      console.log('GoogleSheetsService: Already initialized');
+      return of(undefined);
+    }
+    
+    // Проверяем, включена ли интеграция с Google Sheets
+    const sheetsEnabled = process.env.GOOGLE_SHEETS_ENABLED;
+    if (sheetsEnabled !== 'true') {
+      console.warn(`GoogleSheetsService: Google Sheets integration is disabled (GOOGLE_SHEETS_ENABLED=${sheetsEnabled})`);
+      // Даже если отключено, помечаем как инициализированное, чтобы избежать повторных проверок
+      this.initialized = true;
       return of(undefined);
     }
     
     return from(this.initializeSheets()).pipe(
       tap(() => {
         this.initialized = true;
-        console.log('GoogleSheetsService initialized successfully');
+        console.log('GoogleSheetsService: Initialized successfully');
+        
+        // Проверяем настройки
+        if (!this.spreadsheetId) {
+          console.warn('GoogleSheetsService: GOOGLE_SHEETS_WALLETS_SPREADSHEET_ID is not set!');
+        }
       }),
       catchError(error => {
-        console.error('Failed to initialize GoogleSheetsService:', error);
+        console.error('GoogleSheetsService: Failed to initialize:', error);
+        // Даже при ошибке, помечаем как инициализированное, чтобы избежать повторных попыток
+        this.initialized = true;
         return throwError(() => error);
       })
     );
@@ -65,34 +82,137 @@ export class GoogleSheetsService implements IGoogleSheetsService {
   }
 
   saveTransactions(transactions: CompleteTransaction[], sheetName: string): Observable<void> {
+    console.log(`GoogleSheetsService: Saving ${transactions.length} transactions to sheet ${sheetName}...`);
+    
+    if (transactions.length === 0) {
+      console.log('GoogleSheetsService: No transactions to save, returning early');
+      return of(undefined);
+    }
+    
     return this.ensureInitialized().pipe(
+      tap(() => console.log(`GoogleSheetsService: Successfully initialized, proceeding to save data`)),
       switchMap(() => {
+        // Получаем ID таблицы для транзакций (может отличаться от ID таблицы для кошельков)
+        const transactionsSpreadsheetId = process.env.GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID || this.spreadsheetId;
+        console.log(`GoogleSheetsService: Using transactions spreadsheet ID: ${transactionsSpreadsheetId}`);
+        
+        if (!transactionsSpreadsheetId) {
+          return throwError(() => new Error('GoogleSheetsService: GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID is not set!'));
+        }
+        
+        // Сортируем транзакции по дате (от старых к новым)
+        const sortedTransactions = [...transactions].sort((a, b) => {
+          // Удаляем апостроф из начала даты, если он есть
+          const dateA = a.data.startsWith("'") ? a.data.substring(1) : a.data;
+          const dateB = b.data.startsWith("'") ? b.data.substring(1) : b.data;
+          
+          // Сравниваем даты в порядке возрастания (от старых к новым)
+          return new Date(dateA).getTime() - new Date(dateB).getTime();
+        });
+        
+        console.log(`GoogleSheetsService: Transactions sorted by date. First date: ${sortedTransactions[0]?.data}, Last date: ${sortedTransactions[sortedTransactions.length-1]?.data}`);
+        
         // Преобразуем транзакции в формат для записи в таблицу
-        const rows = transactions.map(tx => [
-          tx.data,                // Дата
-          tx.walletSender,        // Отправитель
-          tx.walletReceiver,      // Получатель
-          tx.hash,                // Хеш транзакции
-          tx.amount,              // Сумма
-          tx.currency             // Валюта
+        // Текстовые поля предваряем апострофом, числа оставляем как есть
+        const rows = sortedTransactions.map(tx => [
+          // Добавляем апостроф к дате, чтобы Google Sheets интерпретировал её как текст
+          tx.data.startsWith("'") ? tx.data : `'${tx.data}`,
+          `'${tx.walletSender}`,    // Отправитель - как текст
+          `'${tx.walletReceiver}`,  // Получатель - как текст
+          `'${tx.hash}`,            // Хеш транзакции - как текст
+          parseFloat(String(tx.amount)) || 0, // Сумма - как число (гарантируем числовой тип)
+          `'${tx.currency}`         // Валюта - как текст
         ]);
 
-        const range = `${sheetName}!A:F`;
+        // Получаем диапазон из переменных окружения, если он определен
+        let range = `${sheetName}!A:F`;
+        
+        // Проверяем есть ли специальные диапазоны для разных типов листов
+        const ethTransactionsRange = process.env.GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE;
+        const defaultTransactionsRange = process.env.GOOGLE_SHEETS_TRANSACTIONS_RANGE;
+        
+        if (sheetName === 'trans-erc' && ethTransactionsRange) {
+          range = ethTransactionsRange;
+          console.log(`GoogleSheetsService: Using ETH transactions range: ${range}`);
+        } else if (sheetName === 'trans' && defaultTransactionsRange) {
+          range = defaultTransactionsRange;
+          console.log(`GoogleSheetsService: Using default transactions range: ${range}`);
+        } else if (sheetName === 'test-trans' && defaultTransactionsRange) {
+          range = defaultTransactionsRange;
+          console.log(`GoogleSheetsService: Using test transactions range: ${range}`);
+        } else if (sheetName) {
+          console.log(`GoogleSheetsService: Using dynamic range for sheet ${sheetName}: ${range}`);
+        }
 
+        console.log(`GoogleSheetsService: Appending ${rows.length} rows to spreadsheet ID: ${transactionsSpreadsheetId}, range: ${range}`);
+        
+        // Добавляем timeout для отладки
+        return new Observable<void>(observer => {
+          setTimeout(() => {
+            console.log(`GoogleSheetsService: Now executing Google Sheets API call`);
+            
+            from(this.sheets!.spreadsheets.values.append({
+              spreadsheetId: transactionsSpreadsheetId,
+              range: range,
+              valueInputOption: 'USER_ENTERED', // Позволяет использовать спец. форматирование
+              insertDataOption: 'INSERT_ROWS',
+              requestBody: {
+                values: rows
+              }
+            })).subscribe({
+              next: response => {
+                console.log(`GoogleSheetsService: Successfully saved transactions to ${sheetName}. Response:`, 
+                  response.status, 
+                  response.statusText, 
+                  response.data?.updates?.updatedRange || 'unknown range'
+                );
+                observer.next(undefined);
+                observer.complete();
+              },
+              error: error => {
+                console.error(`GoogleSheetsService: Error in Google Sheets API call:`, error);
+                observer.error(error);
+              }
+            });
+          }, 500); // Небольшая задержка для отладки
+        });
+      }),
+      catchError(error => {
+        console.error(`GoogleSheetsService: Error saving transactions to sheet ${sheetName}:`, error);
+        // Пробуем вывести более подробную информацию об ошибке
+        if (error.response) {
+          console.error(`Status: ${error.response.status}, Data:`, error.response.data);
+        }
+        return throwError(() => error);
+      })
+    );
+  }
+  
+  /**
+   * Добавляет одну строку данных в указанную вкладку
+   * @param sheetName Имя вкладки
+   * @param row Строка данных
+   * @returns Observable с результатами операции
+   */
+  appendRow(sheetName: string, row: any[]): Observable<void> {
+    return this.ensureInitialized().pipe(
+      switchMap(() => {
+        const range = `${sheetName}!A:Z`;
+        
         return from(this.sheets!.spreadsheets.values.append({
           spreadsheetId: this.spreadsheetId,
           range: range,
           valueInputOption: 'USER_ENTERED',
           insertDataOption: 'INSERT_ROWS',
           requestBody: {
-            values: rows
+            values: [row]
           }
         })).pipe(
           map(() => undefined as void)
         );
       }),
       catchError(error => {
-        console.error(`Error saving transactions to sheet ${sheetName}:`, error);
+        console.error(`Error appending row to sheet ${sheetName}:`, error);
         return throwError(() => error);
       })
     );
@@ -100,9 +220,21 @@ export class GoogleSheetsService implements IGoogleSheetsService {
   
   private ensureInitialized(): Observable<void> {
     if (this.initialized) {
+      if (!this.sheets) {
+        console.error('GoogleSheetsService: sheets is null despite initialized=true!');
+        return throwError(() => new Error('sheets is null'));
+      }
       return of(undefined);
     }
-    return this.initialize();
+    
+    console.log('GoogleSheetsService: Not initialized yet, calling initialize()');
+    return this.initialize().pipe(
+      tap(() => {
+        if (!this.sheets) {
+          console.error('GoogleSheetsService: sheets is still null after initialize()!');
+        }
+      })
+    );
   }
   
   private async initializeSheets(): Promise<void> {
@@ -111,14 +243,39 @@ export class GoogleSheetsService implements IGoogleSheetsService {
       throw new Error('GOOGLE_SHEETS_CREDENTIALS environment variable is not set');
     }
     
-    const credentials = JSON.parse(credentialsStr);
-    
-    this.auth = new JWT({
-      email: credentials.client_email,
-      key: credentials.private_key,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-    
-    this.sheets = google.sheets({ version: 'v4', auth: this.auth });
+    try {
+      const credentials = JSON.parse(credentialsStr);
+      
+      console.log(`GoogleSheetsService: Initializing with client_email: ${credentials.client_email}`);
+      console.log(`GoogleSheetsService: Using spreadsheet ID: ${this.spreadsheetId}`);
+      
+      // Проверяем настройки
+      if (!this.spreadsheetId) {
+        console.warn('GoogleSheetsService: GOOGLE_SHEETS_WALLETS_SPREADSHEET_ID is not set!');
+      }
+      
+      // Проверяем наличие других важных настроек
+      const sheetsEnabled = process.env.GOOGLE_SHEETS_ENABLED;
+      console.log(`GoogleSheetsService: Google Sheets integration is ${sheetsEnabled === 'true' ? 'enabled' : 'disabled'}`);
+      
+      this.auth = new JWT({
+        email: credentials.client_email,
+        key: credentials.private_key,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+      });
+      
+      this.sheets = google.sheets({ version: 'v4', auth: this.auth });
+      
+      // Проверяем наличие переменных для различных диапазонов
+      console.log('GoogleSheetsService: Configured ranges:');
+      console.log(`- GOOGLE_SHEETS_WALLETS_RANGE: ${process.env.GOOGLE_SHEETS_WALLETS_RANGE || 'not set'}`);
+      console.log(`- GOOGLE_SHEETS_ETH_WALLETS_RANGE: ${process.env.GOOGLE_SHEETS_ETH_WALLETS_RANGE || 'not set'}`);
+      console.log(`- GOOGLE_SHEETS_TRANSACTIONS_RANGE: ${process.env.GOOGLE_SHEETS_TRANSACTIONS_RANGE || 'not set'}`);
+      console.log(`- GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE: ${process.env.GOOGLE_SHEETS_ETH_TRANSACTIONS_RANGE || 'not set'}`);
+      
+    } catch (error) {
+      console.error('GoogleSheetsService: Error parsing credentials or initializing:', error);
+      throw error;
+    }
   }
 }
