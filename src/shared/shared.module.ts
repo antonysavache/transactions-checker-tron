@@ -1,5 +1,5 @@
-import {Injectable, Module} from '@nestjs/common';
-import { GoogleSheetsService } from "./services/google-sheets.service";
+import { Module } from '@nestjs/common';
+import { GoogleSheetsService } from "@shared/services";
 
 @Module({
   providers: [GoogleSheetsService],

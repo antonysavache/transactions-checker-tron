@@ -295,14 +295,13 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
         `${this.apiUrl}/v1/accounts/${walletAddress}/transactions/trc20?only_from=true&min_timestamp=${startTime}&max_timestamp=${endTime}`
       );
 
-      console.log(`Fetching TRX transactions for ${walletAddress}`);
       const normalTxs = await this._fetchTransactionsWithRetry(
         `${this.apiUrl}/v1/accounts/${walletAddress}/transactions?min_timestamp=${startTime}&max_timestamp=${endTime}`
       );
 
       const allTransactions = [
-        ...(incomingTrc20Txs.data || []),
-        ...(outgoingTrc20Txs.data || []),
+        ...(incomingTrc20Txs.data.filter((tx: any) => tx.type === 'Transfer') || []),
+        ...(outgoingTrc20Txs.data.filter((tx: any) => tx.type === 'Transfer') || []),
         ...(normalTxs.data || [])
       ];
 

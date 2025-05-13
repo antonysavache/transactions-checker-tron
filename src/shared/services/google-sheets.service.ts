@@ -23,28 +23,16 @@ export class GoogleSheetsService implements IGoogleSheetsService {
       return of(undefined);
     }
     
-    // Проверяем, включена ли интеграция с Google Sheets
-    const sheetsEnabled = process.env.GOOGLE_SHEETS_ENABLED;
-    if (sheetsEnabled !== 'true') {
-      console.warn(`GoogleSheetsService: Google Sheets integration is disabled (GOOGLE_SHEETS_ENABLED=${sheetsEnabled})`);
-      // Даже если отключено, помечаем как инициализированное, чтобы избежать повторных проверок
-      this.initialized = true;
-      return of(undefined);
-    }
-    
     return from(this.initializeSheets()).pipe(
       tap(() => {
         this.initialized = true;
         console.log('GoogleSheetsService: Initialized successfully');
         
-        // Проверяем настройки
         if (!this.spreadsheetId) {
           console.warn('GoogleSheetsService: GOOGLE_SHEETS_WALLETS_SPREADSHEET_ID is not set!');
         }
       }),
       catchError(error => {
-        console.error('GoogleSheetsService: Failed to initialize:', error);
-        // Даже при ошибке, помечаем как инициализированное, чтобы избежать повторных попыток
         this.initialized = true;
         return throwError(() => error);
       })
@@ -55,8 +43,6 @@ export class GoogleSheetsService implements IGoogleSheetsService {
     return this.ensureInitialized().pipe(
       switchMap(() => {
         const fullRange = `${sheetName}!${range || 'A:A'}`;
-        
-        console.log(`Fetching wallets from ${this.spreadsheetId}, range: ${fullRange}`);
         
         return from(this.sheets!.spreadsheets.values.get({
           spreadsheetId: this.spreadsheetId,
@@ -82,9 +68,7 @@ export class GoogleSheetsService implements IGoogleSheetsService {
   }
 
   saveTransactions(transactions: CompleteTransaction[], sheetName: string): Observable<void> {
-    console.log(`GoogleSheetsService: Saving ${transactions.length} transactions to sheet ${sheetName}...`);
-    
-    if (transactions.length === 0) {
+    if (!transactions.length) {
       console.log('GoogleSheetsService: No transactions to save, returning early');
       return of(undefined);
     }
