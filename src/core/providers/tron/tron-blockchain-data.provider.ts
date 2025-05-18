@@ -37,11 +37,14 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
     this.requestDelay = options.requestDelay || 300;
     this.maxRetries = options.maxRetries || 3;
     
-    this.tronWeb = new TronWeb({
-      fullHost: this.apiUrl
-    });
-    
-    console.log('TronBlockchainDataProvider initialized with API URL:', this.apiUrl);
+    try {
+      this.tronWeb = new TronWeb({
+        fullHost: this.apiUrl
+      });
+      console.log('TronBlockchainDataProvider initialized with API URL:', this.apiUrl);
+    } catch (error) {
+      console.error('Error initializing TronWeb:', error);
+    }
   }
 
   /**
@@ -307,6 +310,7 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
 
       console.log(`Successfully fetched ${allTransactions.length} total transactions for wallet ${walletAddress}`);
       
+      // Логи с количеством транзакций только выводятся в консоль
       return allTransactions;
     } catch (error) {
       console.error(`Error fetching transactions for wallet ${walletAddress}:`, error);

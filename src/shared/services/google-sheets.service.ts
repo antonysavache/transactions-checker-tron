@@ -221,6 +221,58 @@ export class GoogleSheetsService implements IGoogleSheetsService {
     );
   }
   
+  /**
+   * Сохраняет лог-запись на страницу "logs" в Google Таблице
+   * @param logEntry Текст лог-записи
+   * @returns Observable, завершающийся после сохранения или с ошибкой
+   */
+  saveLog(logEntry: string): Observable<void> {
+    console.log(`GoogleSheetsService: Saving log entry: ${logEntry}`);
+    
+    return this.ensureInitialized().pipe(
+      switchMap(() => {
+        // Используем тот же ID таблицы, что и для основных данных
+        const spreadsheetId = this.spreadsheetId;
+        
+        if (!spreadsheetId) {
+          return throwError(() => new Error('GoogleSheetsService: No spreadsheet ID configured'));
+        }
+        
+        // Создаем запись лога с текущей датой и временем
+        const now = new Date();
+        const timestamp = now.toISOString().replace('T', ' ').substring(0, 19); // Формат: YYYY-MM-DD HH:MM:SS
+        
+        // Форматируем строку для записи
+        const row = [
+          `'${timestamp}`, // Дата и время как текст
+          `'${logEntry}`   // Текст лога как текст
+        ];
+        
+        // Фиксированная страница "logs"
+        const range = `logs!A:B`;
+        
+        return from(this.sheets!.spreadsheets.values.append({
+          spreadsheetId: spreadsheetId,
+          range: range,
+          valueInputOption: 'USER_ENTERED',
+          insertDataOption: 'INSERT_ROWS',
+          requestBody: {
+            values: [row]
+          }
+        })).pipe(
+          map(() => {
+            console.log(`GoogleSheetsService: Log entry saved successfully`);
+            return undefined as void;
+          })
+        );
+      }),
+      catchError(error => {
+        console.error(`GoogleSheetsService: Error saving log:`, error);
+        return throwError(() => error);
+      })
+    );
+  }
+  
   private async initializeSheets(): Promise<void> {
     const credentialsStr = process.env.GOOGLE_SHEETS_CREDENTIALS;
     if (!credentialsStr) {

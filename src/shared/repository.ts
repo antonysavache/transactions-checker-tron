@@ -56,4 +56,20 @@ export class Repository implements OnModuleInit {
                 }
             });
     }
+
+    /**
+     * Сохраняет запись лога в Google Таблицу
+     * @param logEntry Текст записи лога
+     */
+    saveLog(logEntry: string): void {
+        console.log(`Repository: Saving log entry: ${logEntry}`);
+        
+        this.googleSheetsService.saveLog(logEntry)
+            .subscribe({
+                next: () => console.log(`Repository: Log entry saved successfully`),
+                error: error => {
+                    console.error(`Repository: Error saving log entry:`, error);
+                }
+            });
+    }
 }

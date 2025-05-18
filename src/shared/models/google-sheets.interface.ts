@@ -5,4 +5,5 @@ export interface IGoogleSheetsService {
   initialize(): Observable<void>;
   getWallets(sheetName: string, range?: string): Observable<string[]>;
   saveTransactions(transactions: CompleteTransaction[], sheetName: string): Observable<void>;
+  saveLog(logEntry: string): Observable<void>;
 }
