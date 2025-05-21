@@ -21,31 +21,51 @@ export class MonitorService implements Monitor, OnModuleInit {
   }
 
   public start(): void {
+    // При первом запуске получаем список кошельков и настраиваем интервал проверки
     this.fetchWalletsFromSheets().subscribe({
       next: wallets => {
-        this.wallets = wallets;
+        console.log(`MonitorService: Initial wallet list loaded with ${wallets.length} wallets`);
+
+        // Запускаем первую проверку
         this.runMonitor();
+
+        // Настраиваем периодические проверки по расписанию
         const intervalMs = this.intervalHours * 60 * 60 * 1000;
+        console.log(`MonitorService: Scheduling periodic checks every ${this.intervalHours} hours (${intervalMs}ms)`);
         setInterval(() => this.runMonitor(), intervalMs);
+      },
+      error: error => {
+        console.error(`MonitorService: Failed to load initial wallet list: ${error.message}`);
       }
     });
   }
 
   private runMonitor(): void {
-    if (!this.wallets.length) {
-      return;
-    }
-    
-    this.blockChainTransaction
-      .getTransactions(this.wallets, this.intervalHours)
-      .subscribe({
-        next: transactions => {
-          this.saveTransactions(transactions);
-        },
-        error: error => {
-          console.error(`MonitorService: Error fetching transactions: ${error.message}`);
+    // Получаем свежий список кошельков перед каждой проверкой
+    this.fetchWalletsFromSheets().subscribe({
+      next: freshWallets => {
+        console.log(`MonitorService: Fetched fresh wallet list with ${freshWallets.length} wallets`);
+        if (!freshWallets.length) {
+          console.log('MonitorService: No wallets to monitor, skipping check');
+          return;
         }
-      });
+
+        // Используем свежеполученный список кошельков вместо сохраненного
+        this.blockChainTransaction
+            .getTransactions(freshWallets, this.intervalHours)
+            .subscribe({
+              next: transactions => {
+                this.saveTransactions(transactions);
+              },
+              error: error => {
+                console.error(`MonitorService: Error fetching transactions: ${error.message}`);
+              }
+            });
+      },
+      error: error => {
+        console.error(`MonitorService: Error fetching fresh wallets: ${error.message}`);
+      }
+    });
   }
 
   private fetchWalletsFromSheets(): Observable<string[]> {
