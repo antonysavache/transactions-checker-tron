@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Observable, from } from 'rxjs';
+import { Observable, from, forkJoin } from 'rxjs';
 import { map, catchError } from 'rxjs/operators';
 import axios from 'axios';
 import TronWeb from 'tronweb';
@@ -19,6 +19,13 @@ export interface ITronServiceConfig {
  * Результат получения транзакций
  */
 interface ITransactionsResult {
+  [walletAddress: string]: any[] | { error: string };
+}
+
+/**
+ * Результат получения internal транзакций
+ */
+interface IInternalTransactionsResult {
   [walletAddress: string]: any[] | { error: string };
 }
 
@@ -67,9 +74,23 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
     
     console.log(`TronBlockchainDataProvider: Time range: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
     
-    // Получаем транзакции для кошельков
-    return from(this.getTransactionsForWallets(wallets, startTime, endTime)).pipe(
-      map(results => this.processTransactionsResults(results)),
+    // Параллельно получаем обычные и internal транзакции
+    const regularTxs$ = from(this.getTransactionsForWallets(wallets, startTime, endTime));
+    const internalTxs$ = from(this.getInternalTransactionsForWallets(wallets, startTime, endTime));
+    
+    return forkJoin({
+      regular: regularTxs$,
+      internal: internalTxs$
+    }).pipe(
+      map(({ regular, internal }) => {
+        const regularTransactions = this.processTransactionsResults(regular);
+        const internalTransactions = this.processInternalTransactionsResults(internal);
+        
+        console.log(`TronBlockchainDataProvider: Found ${regularTransactions.length} regular and ${internalTransactions.length} internal transactions`);
+        
+        // Объединяем результаты
+        return [...regularTransactions, ...internalTransactions];
+      }),
       catchError(error => {
         console.error('Error in TronBlockchainDataProvider:', error);
         return from([]);
@@ -376,6 +397,139 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
         console.error(`API request failed after ${this.maxRetries} attempts:`, error.message);
         throw new Error(`Failed after ${this.maxRetries} attempts: ${error.message}`);
       }
+    }
+  }
+
+  /**
+   * Получает internal транзакции для списка кошельков
+   */
+  public async getInternalTransactionsForWallets(
+    walletAddresses: string[], 
+    startTime: number, 
+    endTime: number
+  ): Promise<IInternalTransactionsResult> {
+    console.log(`Fetching internal transactions for ${walletAddresses.length} wallets`);
+    
+    const results: IInternalTransactionsResult = {};
+    
+    for (const walletAddress of walletAddresses) {
+      try {
+        if (Object.keys(results).length > 0) {
+          console.log(`Adding delay of ${this.requestDelay}ms before next internal request`);
+          await new Promise(resolve => setTimeout(resolve, this.requestDelay));
+        }
+        
+        const transactions = await this.getInternalTransactions(walletAddress, startTime, endTime);
+        results[walletAddress] = transactions;
+        
+        console.log(`Successfully fetched ${transactions.length} internal transactions for ${walletAddress}`);
+      } catch (error) {
+        console.error(`Failed to fetch internal transactions for ${walletAddress}:`, error);
+        results[walletAddress] = { error: (error as Error).message };
+      }
+    }
+    
+    return results;
+  }
+
+  /**
+   * Получает internal транзакции для указанного кошелька
+   */
+  private async getInternalTransactions(walletAddress: string, startTime: number, endTime: number): Promise<any[]> {
+    try {
+      console.log(`Fetching internal transactions for wallet ${walletAddress} from ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
+      
+      if (!this.tronWeb.isAddress(walletAddress)) {
+        const error = `Invalid TRON address: ${walletAddress}`;
+        console.error(error);
+        throw new Error(error);
+      }
+
+      // Используем TronScan API для internal transactions
+      const response = await this._fetchTransactionsWithRetry(
+        `https://apilist.tronscanapi.com/api/internal-transaction?limit=50&start=0&address=${walletAddress}`
+      );
+
+      // Фильтруем по времени (API может не поддерживать параметры времени)
+      const filteredTransactions = response.data ? response.data.filter((tx: any) => {
+        return tx.timestamp >= startTime && tx.timestamp <= endTime;
+      }) : [];
+
+      console.log(`Successfully fetched ${filteredTransactions.length} internal transactions for wallet ${walletAddress}`);
+      
+      return filteredTransactions;
+    } catch (error) {
+      console.error(`Error fetching internal transactions for wallet ${walletAddress}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Обрабатывает результаты internal транзакций
+   */
+  private processInternalTransactionsResults(results: IInternalTransactionsResult): CompleteTransaction[] {
+    const transactions: CompleteTransaction[] = [];
+    
+    // Обрабатываем результаты для каждого кошелька
+    for (const [walletAddress, walletTransactions] of Object.entries(results)) {
+      // Пропускаем кошельки с ошибками
+      if ('error' in walletTransactions) {
+        continue;
+      }
+      
+      // Обрабатываем internal транзакции
+      for (const tx of walletTransactions) {
+        try {
+          const transaction = this.processInternalTransaction(tx, walletAddress);
+          if (transaction) {
+            transactions.push(transaction);
+          }
+        } catch (error) {
+          console.error('Error processing internal transaction:', error);
+        }
+      }
+    }
+    
+    console.log(`TronBlockchainDataProvider: Processed ${transactions.length} internal transactions`);
+    return transactions;
+  }
+
+  /**
+   * Обрабатывает одну internal транзакцию
+   */
+  private processInternalTransaction(tx: any, walletAddress: string): CompleteTransaction | null {
+    try {
+      const timestamp = tx.timestamp;
+      const date = new Date(timestamp);
+      const formattedDate = this.formatDate(date);
+      
+      // Получаем сумму из call_value
+      let amount = 0;
+      try {
+        if (tx.call_value) {
+          // call_value уже учитывает decimals согласно tokenInfo
+          amount = parseFloat(tx.call_value);
+          if (tx.token_list?.tokenInfo?.tokenDecimal) {
+            amount = amount / Math.pow(10, tx.token_list.tokenInfo.tokenDecimal);
+          }
+        }
+        if (isNaN(amount)) amount = 0;
+      } catch (e) {
+        console.error('Error converting internal transaction amount to number:', e);
+        amount = 0;
+      }
+      
+      return {
+        data: formattedDate,
+        walletSender: tx.from,
+        walletReceiver: tx.to,
+        hash: tx.hash,
+        amount: amount,
+        currency: 'TRX'
+      };
+    } catch (error) {
+      console.error('Error processing internal transaction:', error);
+      return null;
     }
   }
 
