@@ -314,10 +314,18 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
         `${this.apiUrl}/v1/accounts/${walletAddress}/transactions/trc20?only_to=true&min_timestamp=${startTime}&max_timestamp=${endTime}`
       );
       
+      // ДОБАВЛЯЕМ ЗАДЕРЖКУ МЕЖДУ ЗАПРОСАМИ TRC20
+      console.log(`Adding delay of ${this.requestDelay}ms between TRC20 requests`);
+      await new Promise(resolve => setTimeout(resolve, this.requestDelay));
+      
       console.log(`Fetching outgoing TRC20 transactions for ${walletAddress}`);
       const outgoingTrc20Txs = await this._fetchTransactionsWithRetry(
         `${this.apiUrl}/v1/accounts/${walletAddress}/transactions/trc20?only_from=true&min_timestamp=${startTime}&max_timestamp=${endTime}`
       );
+
+      // ДОБАВЛЯЕМ ЗАДЕРЖКУ ПЕРЕД ОБЫЧНЫМИ ТРАНЗАКЦИЯМИ
+      console.log(`Adding delay of ${this.requestDelay}ms between TRC20 and normal transactions`);
+      await new Promise(resolve => setTimeout(resolve, this.requestDelay));
 
       const normalTxs = await this._fetchTransactionsWithRetry(
         `${this.apiUrl}/v1/accounts/${walletAddress}/transactions?min_timestamp=${startTime}&max_timestamp=${endTime}`

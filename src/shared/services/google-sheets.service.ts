@@ -67,6 +67,59 @@ export class GoogleSheetsService implements IGoogleSheetsService {
     );
   }
 
+  /**
+   * Получает существующие комбинации хеш+сумма из таблицы для фильтрации дублей
+   * @param sheetName Имя листа с транзакциями
+   * @returns Observable с Set комбинаций "хеш-сумма"
+   */
+  getExistingTransactionHashes(sheetName: string): Observable<Set<string>> {
+    return this.ensureInitialized().pipe(
+      switchMap(() => {
+        const transactionsSpreadsheetId = process.env.GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID || this.spreadsheetId;
+        
+        // Получаем диапазон для хешей (колонка D) и сумм (колонка E)
+        let hashAmountRange = `${sheetName}!D:E`;
+        
+        console.log(`GoogleSheetsService: Fetching existing transaction hashes and amounts from ${hashAmountRange}`);
+        
+        return from(this.sheets!.spreadsheets.values.get({
+          spreadsheetId: transactionsSpreadsheetId,
+          range: hashAmountRange,
+        }));
+      }),
+      map(response => {
+        const values = response.data.values || [];
+        
+        // Извлекаем комбинации хеш+сумма, пропуская заголовок и пустые строки
+        const hashAmountCombinations = new Set<string>();
+        
+        values.forEach((row, index) => {
+          if (index === 0) return; // Пропускаем заголовок
+          
+          const hash = row[0]?.toString().trim(); // Колонка D (хеш)
+          const amount = row[1]?.toString().trim(); // Колонка E (сумма)
+          
+          if (hash && amount && hash.length > 0 && !hash.startsWith('#') && hash !== 'hash') {
+            // Убираем апостроф из начала хеша, если есть
+            const cleanHash = hash.startsWith("'") ? hash.substring(1) : hash;
+            
+            // Создаем уникальный ключ: "хеш-сумма"
+            const uniqueKey = `${cleanHash}-${amount}`;
+            hashAmountCombinations.add(uniqueKey);
+          }
+        });
+        
+        console.log(`GoogleSheetsService: Found ${hashAmountCombinations.size} existing hash-amount combinations`);
+        return hashAmountCombinations;
+      }),
+      catchError(error => {
+        console.error(`GoogleSheetsService: Error fetching existing hash-amount combinations from ${sheetName}:`, error);
+        // Возвращаем пустой Set в случае ошибки, чтобы не блокировать сохранение
+        return of(new Set<string>());
+      })
+    );
+  }
+
   saveTransactions(transactions: CompleteTransaction[], sheetName: string): Observable<void> {
     if (!transactions.length) {
       console.log('GoogleSheetsService: No transactions to save, returning early');
@@ -74,9 +127,30 @@ export class GoogleSheetsService implements IGoogleSheetsService {
     }
     
     return this.ensureInitialized().pipe(
-      tap(() => console.log(`GoogleSheetsService: Successfully initialized, proceeding to save data`)),
+      tap(() => console.log(`GoogleSheetsService: Successfully initialized, proceeding to check for duplicates`)),
       switchMap(() => {
-        // Получаем ID таблицы для транзакций (может отличаться от ID таблицы для кошельков)
+        // Сначала получаем существующие комбинации хеш+сумма для фильтрации дублей
+        return this.getExistingTransactionHashes(sheetName);
+      }),
+      switchMap((existingHashAmountCombinations) => {
+        // Фильтруем транзакции, исключая дубли по комбинации хеш+сумма
+        const uniqueTransactions = transactions.filter(tx => {
+          const uniqueKey = `${tx.hash}-${tx.amount}`;
+          const isDuplicate = existingHashAmountCombinations.has(uniqueKey);
+          if (isDuplicate) {
+            console.log(`GoogleSheetsService: Skipping duplicate transaction with hash: ${tx.hash} and amount: ${tx.amount}`);
+          }
+          return !isDuplicate;
+        });
+        
+        console.log(`GoogleSheetsService: Filtered ${transactions.length - uniqueTransactions.length} duplicate transactions. ${uniqueTransactions.length} unique transactions remain.`);
+        
+        if (!uniqueTransactions.length) {
+          console.log('GoogleSheetsService: No unique transactions to save after filtering duplicates');
+          return of(undefined);
+        }
+        
+        // Получаем ID таблицы для транзакций
         const transactionsSpreadsheetId = process.env.GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID || this.spreadsheetId;
         console.log(`GoogleSheetsService: Using transactions spreadsheet ID: ${transactionsSpreadsheetId}`);
         
@@ -84,8 +158,8 @@ export class GoogleSheetsService implements IGoogleSheetsService {
           return throwError(() => new Error('GoogleSheetsService: GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID is not set!'));
         }
         
-        // Сортируем транзакции по дате (от старых к новым)
-        const sortedTransactions = [...transactions].sort((a, b) => {
+        // Сортируем уникальные транзакции по дате (от старых к новым)
+        const sortedTransactions = [...uniqueTransactions].sort((a, b) => {
           // Удаляем апостроф из начала даты, если он есть
           const dateA = a.data.startsWith("'") ? a.data.substring(1) : a.data;
           const dateB = b.data.startsWith("'") ? b.data.substring(1) : b.data;
