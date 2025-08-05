@@ -50,9 +50,13 @@ export class MonitorService implements Monitor, OnModuleInit {
           return;
         }
 
-        // Используем свежеполученный список кошельков вместо сохраненного
+        // Вычисляем интервал для проверки транзакций (в 2 раза больше интервала между проверками)
+        const lookbackHours = this.intervalHours * 2;
+        console.log(`MonitorService: Check interval: ${this.intervalHours}h, lookback period: ${lookbackHours}h`);
+
+        // Используем свежеполученный список кошельков
         this.blockChainTransaction
-            .getTransactions(freshWallets, this.intervalHours)
+            .getTransactions(freshWallets, lookbackHours)
             .subscribe({
               next: transactions => {
                 this.saveTransactions(transactions);
