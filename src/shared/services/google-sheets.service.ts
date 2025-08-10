@@ -5,7 +5,6 @@ import { Observable, from, of, throwError } from 'rxjs';
 import { tap, switchMap, catchError, map } from 'rxjs/operators';
 import { IGoogleSheetsService } from '@shared/models/google-sheets.interface';
 import { CompleteTransaction } from '@shared/models';
-import { DuplicateCleanerService } from './duplicate-cleaner.service';
 
 @Injectable()
 export class GoogleSheetsService implements IGoogleSheetsService {
@@ -14,7 +13,7 @@ export class GoogleSheetsService implements IGoogleSheetsService {
   private initialized = false;
   private readonly spreadsheetId: string;
   
-  constructor(private duplicateCleaner: DuplicateCleanerService) {
+  constructor() {
     this.spreadsheetId = process.env.GOOGLE_SHEETS_WALLETS_SPREADSHEET_ID || '';
   }
   
@@ -77,6 +76,20 @@ export class GoogleSheetsService implements IGoogleSheetsService {
     return this.ensureInitialized().pipe(
       tap(() => console.log(`GoogleSheetsService: Saving ${transactions.length} transactions to ${sheetName}`)),
       switchMap(() => {
+        // Сначала получаем существующие транзакции для фильтрации дубликатов
+        return this.getExistingTransactions(sheetName);
+      }),
+      switchMap((existingTransactions) => {
+        // Фильтруем дубликаты
+        const uniqueTransactions = this.filterDuplicateTransactions(transactions, existingTransactions);
+        
+        console.log(`GoogleSheetsService: Filtered ${transactions.length - uniqueTransactions.length} duplicates. ${uniqueTransactions.length} unique transactions remain.`);
+        
+        if (!uniqueTransactions.length) {
+          console.log('GoogleSheetsService: No unique transactions to save after filtering duplicates');
+          return of(undefined);
+        }
+        
         // Получаем ID таблицы для транзакций
         const transactionsSpreadsheetId = process.env.GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID || this.spreadsheetId;
         console.log(`GoogleSheetsService: Using transactions spreadsheet ID: ${transactionsSpreadsheetId}`);
@@ -86,7 +99,7 @@ export class GoogleSheetsService implements IGoogleSheetsService {
         }
         
         // Сортируем транзакции по дате (от старых к новым)
-        const sortedTransactions = [...transactions].sort((a, b) => {
+        const sortedTransactions = [...uniqueTransactions].sort((a, b) => {
           // Удаляем апостроф из начала даты, если он есть
           const dateA = a.data.startsWith("'") ? a.data.substring(1) : a.data;
           const dateB = b.data.startsWith("'") ? b.data.substring(1) : b.data;
@@ -128,7 +141,7 @@ export class GoogleSheetsService implements IGoogleSheetsService {
 
         console.log(`GoogleSheetsService: Appending ${rows.length} rows to spreadsheet ID: ${transactionsSpreadsheetId}, range: ${range}`);
         
-        // Сначала добавляем транзакции
+        // Добавляем транзакции
         return from(this.sheets!.spreadsheets.values.append({
           spreadsheetId: transactionsSpreadsheetId,
           range: range,
@@ -145,18 +158,6 @@ export class GoogleSheetsService implements IGoogleSheetsService {
               response.data?.updates?.updatedRange || 'unknown range'
             );
           }),
-          // После успешной записи запускаем очистку дубликатов
-          switchMap(() => {
-            console.log(`GoogleSheetsService: Starting duplicate cleanup for ${sheetName}...`);
-            return this.duplicateCleaner.cleanDuplicates(this.sheets!, transactionsSpreadsheetId, sheetName);
-          }),
-          tap(removedCount => {
-            if (removedCount > 0) {
-              console.log(`GoogleSheetsService: ✅ Removed ${removedCount} duplicate entries from ${sheetName}`);
-            } else {
-              console.log(`GoogleSheetsService: ✅ No duplicates found in ${sheetName}`);
-            }
-          }),
           map(() => undefined as void)
         );
       }),
@@ -168,6 +169,92 @@ export class GoogleSheetsService implements IGoogleSheetsService {
         return throwError(() => error);
       })
     );
+  }
+
+  /**
+   * Получает существующие транзакции из таблицы
+   */
+  private getExistingTransactions(sheetName: string): Observable<Set<string>> {
+    return this.ensureInitialized().pipe(
+      switchMap(() => {
+        const transactionsSpreadsheetId = process.env.GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID || this.spreadsheetId;
+        const range = `${sheetName}!A:F`;
+        
+        console.log(`GoogleSheetsService: Fetching existing transactions from ${range}`);
+        
+        return from(this.sheets!.spreadsheets.values.get({
+          spreadsheetId: transactionsSpreadsheetId,
+          range: range,
+        }));
+      }),
+      map(response => {
+        const values = response.data.values || [];
+        const existingKeys = new Set<string>();
+        
+        // Пропускаем заголовок (первая строка)
+        values.slice(1).forEach((row, index) => {
+          if (row.length >= 5) {
+            const hash = this.cleanValue(row[3]); // Колонка D - hash
+            const amount = this.normalizeAmount(row[4]); // Колонка E - amount
+            
+            if (hash && amount !== null) {
+              const key = `${hash}-${amount}`;
+              existingKeys.add(key);
+            }
+          }
+        });
+        
+        console.log(`GoogleSheetsService: Found ${existingKeys.size} existing transactions`);
+        return existingKeys;
+      }),
+      catchError(error => {
+        console.error(`GoogleSheetsService: Error fetching existing transactions:`, error);
+        return of(new Set<string>());
+      })
+    );
+  }
+
+  /**
+   * Фильтрует дубликаты из новых транзакций
+   */
+  private filterDuplicateTransactions(
+    newTransactions: CompleteTransaction[], 
+    existingKeys: Set<string>
+  ): CompleteTransaction[] {
+    return newTransactions.filter(tx => {
+      const amount = this.normalizeAmount(tx.amount);
+      if (amount === null) return true; // Оставляем транзакции с некорректными суммами
+      
+      const key = `${tx.hash}-${amount}`;
+      const isDuplicate = existingKeys.has(key);
+      
+      if (isDuplicate) {
+        console.log(`GoogleSheetsService: Skipping duplicate: ${key}`);
+      }
+      
+      return !isDuplicate;
+    });
+  }
+
+  /**
+   * Очищает значение от апострофов и пробелов
+   */
+  private cleanValue(value: any): string | null {
+    if (!value) return null;
+    const str = String(value).trim();
+    return str.startsWith("'") ? str.substring(1) : str;
+  }
+
+  /**
+   * Нормализует сумму к стандартному формату
+   */
+  private normalizeAmount(amount: any): string | null {
+    if (amount === null || amount === undefined) return null;
+    
+    const numValue = typeof amount === 'number' ? amount : parseFloat(String(amount));
+    if (isNaN(numValue)) return null;
+    
+    return numValue.toFixed(2);
   }
   
   /**
