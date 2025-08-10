@@ -103,8 +103,12 @@ export class GoogleSheetsService implements IGoogleSheetsService {
             // Убираем апостроф из начала хеша, если есть
             const cleanHash = hash.startsWith("'") ? hash.substring(1) : hash;
             
+            // Нормализуем сумму - приводим к числу и обратно для единообразия
+            const numAmount = parseFloat(amount);
+            const normalizedAmount = isNaN(numAmount) ? amount : numAmount.toFixed(2);
+            
             // Создаем уникальный ключ: "хеш-сумма"
-            const uniqueKey = `${cleanHash}-${amount}`;
+            const uniqueKey = `${cleanHash}-${normalizedAmount}`;
             hashAmountCombinations.add(uniqueKey);
           }
         });
@@ -135,10 +139,14 @@ export class GoogleSheetsService implements IGoogleSheetsService {
       switchMap((existingHashAmountCombinations) => {
         // Фильтруем транзакции, исключая дубли по комбинации хеш+сумма
         const uniqueTransactions = transactions.filter(tx => {
-          const uniqueKey = `${tx.hash}-${tx.amount}`;
+          // Нормализуем сумму для сравнения
+          const numAmount = parseFloat(String(tx.amount));
+          const normalizedAmount = isNaN(numAmount) ? String(tx.amount) : numAmount.toFixed(2);
+          const uniqueKey = `${tx.hash}-${normalizedAmount}`;
           const isDuplicate = existingHashAmountCombinations.has(uniqueKey);
+          
           if (isDuplicate) {
-            console.log(`GoogleSheetsService: Skipping duplicate transaction with hash: ${tx.hash} and amount: ${tx.amount}`);
+            console.log(`GoogleSheetsService: Skipping duplicate transaction with hash: ${tx.hash} and amount: ${normalizedAmount}`);
           }
           return !isDuplicate;
         });
@@ -178,7 +186,7 @@ export class GoogleSheetsService implements IGoogleSheetsService {
           `'${tx.walletSender}`,    // Отправитель - как текст
           `'${tx.walletReceiver}`,  // Получатель - как текст
           `'${tx.hash}`,            // Хеш транзакции - как текст
-          parseFloat(String(tx.amount)) || 0, // Сумма - как число (гарантируем числовой тип)
+          parseFloat(String(tx.amount)) || 0, // Сумма - как число
           `'${tx.currency}`         // Валюта - как текст
         ]);
 
