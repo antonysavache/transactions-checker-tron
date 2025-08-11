@@ -90,6 +90,8 @@ export class GoogleSheetsService implements IGoogleSheetsService {
           return of(undefined);
         }
         
+        console.log(`GoogleSheetsService: Proceeding to save ${uniqueTransactions.length} unique transactions to ${sheetName}`);
+        
         // Получаем ID таблицы для транзакций
         const transactionsSpreadsheetId = process.env.GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID || this.spreadsheetId;
         console.log(`GoogleSheetsService: Using transactions spreadsheet ID: ${transactionsSpreadsheetId}`);
@@ -180,7 +182,7 @@ export class GoogleSheetsService implements IGoogleSheetsService {
         const transactionsSpreadsheetId = process.env.GOOGLE_SHEETS_TRANSACTIONS_SPREADSHEET_ID || this.spreadsheetId;
         const range = `${sheetName}!A:F`;
         
-        console.log(`GoogleSheetsService: Fetching existing transactions from ${range}`);
+        console.log(`GoogleSheetsService: Fetching existing transactions from ${range} (spreadsheet: ${transactionsSpreadsheetId})`);
         
         return from(this.sheets!.spreadsheets.values.get({
           spreadsheetId: transactionsSpreadsheetId,
@@ -191,6 +193,8 @@ export class GoogleSheetsService implements IGoogleSheetsService {
         const values = response.data.values || [];
         const existingKeys = new Set<string>();
         
+        console.log(`GoogleSheetsService: Processing ${values.length} rows from sheet (including headers)`);
+        
         // Пропускаем заголовок (первая строка)
         values.slice(1).forEach((row, index) => {
           if (row.length >= 5) {
@@ -200,11 +204,20 @@ export class GoogleSheetsService implements IGoogleSheetsService {
             if (hash && amount !== null) {
               const key = `${hash}-${amount}`;
               existingKeys.add(key);
+              
+              // Показываем первые 5 ключей для отладки
+              if (existingKeys.size <= 5) {
+                console.log(`GoogleSheetsService: Existing key example ${existingKeys.size}: "${key}" (from row ${index + 2})`);
+              }
+            } else {
+              console.log(`GoogleSheetsService: Skipping row ${index + 2} - missing hash or amount (hash: "${row[3]}", amount: "${row[4]}")`);
             }
+          } else {
+            console.log(`GoogleSheetsService: Skipping row ${index + 2} - insufficient columns (${row.length} columns)`);
           }
         });
         
-        console.log(`GoogleSheetsService: Found ${existingKeys.size} existing transactions`);
+        console.log(`GoogleSheetsService: Found ${existingKeys.size} existing unique transactions`);
         return existingKeys;
       }),
       catchError(error => {
@@ -221,19 +234,33 @@ export class GoogleSheetsService implements IGoogleSheetsService {
     newTransactions: CompleteTransaction[], 
     existingKeys: Set<string>
   ): CompleteTransaction[] {
-    return newTransactions.filter(tx => {
+    console.log(`GoogleSheetsService: Starting duplicate filtering for ${newTransactions.length} new transactions against ${existingKeys.size} existing keys`);
+    
+    let duplicatesCount = 0;
+    const filteredTransactions = newTransactions.filter(tx => {
       const amount = this.normalizeAmount(tx.amount);
-      if (amount === null) return true; // Оставляем транзакции с некорректными суммами
+      if (amount === null) {
+        console.log(`GoogleSheetsService: Keeping transaction with invalid amount: ${tx.hash} (amount: ${tx.amount})`);
+        return true; // Оставляем транзакции с некорректными суммами
+      }
       
-      const key = `${tx.hash}-${amount}`;
+      // Очищаем хеш от апострофа, если он есть
+      const cleanHash = this.cleanValue(tx.hash) || tx.hash;
+      const key = `${cleanHash}-${amount}`;
       const isDuplicate = existingKeys.has(key);
       
       if (isDuplicate) {
-        console.log(`GoogleSheetsService: Skipping duplicate: ${key}`);
+        duplicatesCount++;
+        console.log(`GoogleSheetsService: [${duplicatesCount}] Skipping duplicate: ${key} (original hash: "${tx.hash}", amount: ${tx.amount})`);
+        return false;
+      } else {
+        console.log(`GoogleSheetsService: Keeping unique transaction: ${key}`);
+        return true;
       }
-      
-      return !isDuplicate;
     });
+    
+    console.log(`GoogleSheetsService: Duplicate filtering complete. Filtered out ${duplicatesCount} duplicates. ${filteredTransactions.length} unique transactions remain.`);
+    return filteredTransactions;
   }
 
   /**
@@ -249,12 +276,28 @@ export class GoogleSheetsService implements IGoogleSheetsService {
    * Нормализует сумму к стандартному формату
    */
   private normalizeAmount(amount: any): string | null {
-    if (amount === null || amount === undefined) return null;
+    if (amount === null || amount === undefined) {
+      return null;
+    }
     
-    const numValue = typeof amount === 'number' ? amount : parseFloat(String(amount));
-    if (isNaN(numValue)) return null;
+    // Если это строка, очищаем от апострофа
+    let cleanAmount = amount;
+    if (typeof amount === 'string') {
+      cleanAmount = amount.trim();
+      if (cleanAmount.startsWith("'")) {
+        cleanAmount = cleanAmount.substring(1);
+      }
+    }
     
-    return numValue.toFixed(2);
+    const numValue = typeof cleanAmount === 'number' ? cleanAmount : parseFloat(String(cleanAmount));
+    if (isNaN(numValue)) {
+      console.log(`GoogleSheetsService: Invalid amount value: "${amount}" -> "${cleanAmount}" -> NaN`);
+      return null;
+    }
+    
+    const normalized = numValue.toFixed(2);
+    console.log(`GoogleSheetsService: Normalized amount: "${amount}" -> "${normalized}"`);
+    return normalized;
   }
   
   /**
