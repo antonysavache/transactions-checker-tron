@@ -215,18 +215,26 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
           // ЛОГИРУЕМ ВСЕ ХЕШИ ДЛЯ ПОИСКА НУЖНОЙ ТРАНЗАКЦИИ
           console.log(`Processing tx hash: ${txHash}`);
           
-          // ВРЕМЕННОЕ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ СТРУКТУРЫ КОМИССИИ
-          if (txHash && (txHash.includes('11227923da7a5fa4cc7ea713c56a2a93ee6dd0e4f97290a198683b064f5c41bb') || 
-                        txHash === '11227923da7a5fa4cc7ea713c56a2a93ee6dd0e4f97290a198683b064f5c41bb')) {
-            console.log('=== TRANSACTION FEE DEBUG ===');
+          // ВРЕМЕННОЕ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ СТРУКТУРЫ КОМИССИИ ДЛЯ ВСЕХ USDT
+          if (tx.token_info && tx.token_info.symbol === 'USDT') {
+            console.log('=== USDT TRANSACTION DEBUG ===');
             console.log('Transaction Hash:', txHash);
-            console.log('Full TX object:', JSON.stringify(tx, null, 2));
+            console.log('Amount:', tx.value);
+            console.log('From:', tx.from);
+            console.log('To:', tx.to);
+            console.log('All tx keys:', Object.keys(tx));
             console.log('tx.net_fee:', tx.net_fee);
             console.log('tx.energy_fee:', tx.energy_fee);
             console.log('tx.cost:', tx.cost);
             console.log('tx.ret:', tx.ret);
-            console.log('All tx keys:', Object.keys(tx));
-            console.log('================================');
+            // Проверяем все поля содержащие fee
+            Object.keys(tx).forEach(key => {
+              if (key.toLowerCase().includes('fee') || key.toLowerCase().includes('cost') || 
+                  key.toLowerCase().includes('energy') || key.toLowerCase().includes('net')) {
+                console.log(`tx.${key}:`, tx[key]);
+              }
+            });
+            console.log('==================================');
           }
           
           // Получаем комиссию из всех возможных полей для избежания дублирования
