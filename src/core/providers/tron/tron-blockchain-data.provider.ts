@@ -61,6 +61,28 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
   private extractTransactionFee(tx: any): number {
     let totalFee = 0;
     
+    // ВРЕМЕННОЕ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ
+    const txHash = tx.txID || tx.transaction_id;
+    const isTargetTx = txHash && txHash.includes('00e59654f7bc41d85436e0c05ba09043e893127096f795c4390273799c5');
+    
+    if (isTargetTx) {
+      console.log('=== EXTRACT FEE DEBUG ===');
+      console.log('Checking tx:', txHash);
+      console.log('tx.cost:', tx.cost);
+      console.log('tx.net_fee:', tx.net_fee);
+      console.log('tx.energy_fee:', tx.energy_fee);
+      console.log('tx.energy_penalty_total:', tx.energy_penalty_total);
+      console.log('tx.ret:', tx.ret);
+      
+      // Проверяем все поля содержащие 'fee' или 'cost'
+      Object.keys(tx).forEach(key => {
+        if (key.toLowerCase().includes('fee') || key.toLowerCase().includes('cost') || 
+            key.toLowerCase().includes('energy') || key.toLowerCase().includes('net')) {
+          console.log(`tx.${key}:`, tx[key]);
+        }
+      });
+    }
+    
     // Для предотвращения дублирования проверяем поля в определенном порядке приоритета
     
     // 1. Проверяем структуру cost (для данных от TronScan API)
@@ -110,6 +132,14 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
     // Логируем источник комиссии для отладки
     if (totalFee > 0) {
       console.log(`Fee extracted: ${totalFee} SUN (${totalFee / 1000000} TRX) for tx: ${tx.txID || tx.transaction_id}`);
+    }
+    
+    // ДОПОЛНИТЕЛЬНОЕ ЛОГИРОВАНИЕ ДЛЯ ЦЕЛЕВОЙ ТРАНЗАКЦИИ
+    if (isTargetTx) {
+      console.log('=== FINAL FEE RESULT ===');
+      console.log('Total fee found:', totalFee, 'SUN');
+      console.log('Total fee in TRX:', totalFee / 1000000);
+      console.log('========================');
     }
     
     // Возвращаем комиссию в TRX (конвертируем из SUN)
@@ -180,6 +210,20 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
           if (!txHash) {
             console.error('Transaction hash not found:', tx);
             continue;
+          }
+          
+          // ВРЕМЕННОЕ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ СТРУКТУРЫ КОМИССИИ
+          if (txHash && (txHash.includes('00e59654f7bc41d85436e0c05ba09043e893127096f795c4390273799c5') || 
+                        txHash === '00e59654f7bc41d85436e0c05ba09043e893127096f795c4390273799c5-USDT')) {
+            console.log('=== TRANSACTION FEE DEBUG ===');
+            console.log('Transaction Hash:', txHash);
+            console.log('Full TX object:', JSON.stringify(tx, null, 2));
+            console.log('tx.net_fee:', tx.net_fee);
+            console.log('tx.energy_fee:', tx.energy_fee);
+            console.log('tx.cost:', tx.cost);
+            console.log('tx.ret:', tx.ret);
+            console.log('All tx keys:', Object.keys(tx));
+            console.log('================================');
           }
           
           // Получаем комиссию из всех возможных полей для избежания дублирования
