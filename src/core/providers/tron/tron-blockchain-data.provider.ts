@@ -63,7 +63,7 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
     
     // ВРЕМЕННОЕ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ
     const txHash = tx.txID || tx.transaction_id;
-    const isTargetTx = txHash && txHash.includes('00e59654f7bc41d85436e0c05ba09043e893127096f795c4390273799c5');
+    const isTargetTx = txHash && txHash.includes('11227923da7a5fa4cc7ea713c56a2a93ee6dd0e4f97290a198683b064f5c41bb');
     
     if (isTargetTx) {
       console.log('=== EXTRACT FEE DEBUG ===');
@@ -212,9 +212,12 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
             continue;
           }
           
+          // ЛОГИРУЕМ ВСЕ ХЕШИ ДЛЯ ПОИСКА НУЖНОЙ ТРАНЗАКЦИИ
+          console.log(`Processing tx hash: ${txHash}`);
+          
           // ВРЕМЕННОЕ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ СТРУКТУРЫ КОМИССИИ
-          if (txHash && (txHash.includes('00e59654f7bc41d85436e0c05ba09043e893127096f795c4390273799c5') || 
-                        txHash === '00e59654f7bc41d85436e0c05ba09043e893127096f795c4390273799c5-USDT')) {
+          if (txHash && (txHash.includes('11227923da7a5fa4cc7ea713c56a2a93ee6dd0e4f97290a198683b064f5c41bb') || 
+                        txHash === '11227923da7a5fa4cc7ea713c56a2a93ee6dd0e4f97290a198683b064f5c41bb')) {
             console.log('=== TRANSACTION FEE DEBUG ===');
             console.log('Transaction Hash:', txHash);
             console.log('Full TX object:', JSON.stringify(tx, null, 2));
