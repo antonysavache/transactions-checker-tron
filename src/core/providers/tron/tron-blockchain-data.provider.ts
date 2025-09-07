@@ -55,6 +55,68 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
   }
 
   /**
+   * Безопасно извлекает комиссию транзакции из всех возможных полей
+   * Избегает дублирования, проверяя различные источники данных о комиссии
+   */
+  private extractTransactionFee(tx: any): number {
+    let totalFee = 0;
+    
+    // Для предотвращения дублирования проверяем поля в определенном порядке приоритета
+    
+    // 1. Проверяем структуру cost (для данных от TronScan API)
+    if (tx.cost) {
+      const costFees = [
+        tx.cost.net_fee_cost,     // Стоимость bandwidth
+        tx.cost.energy_fee_cost,  // Стоимость energy
+        tx.cost.energy_fee,       // Дополнительная energy комиссия
+        tx.cost.energy_penalty_total, // Штраф за недостаток energy
+        tx.cost.fee               // Общая комиссия
+      ];
+      
+      costFees.forEach(fee => {
+        if (fee && !isNaN(parseFloat(fee)) && parseFloat(fee) > 0) {
+          totalFee += parseFloat(fee);
+        }
+      });
+      
+      // Если нашли комиссии в структуре cost, используем их (они уже в SUN)
+      if (totalFee > 0) {
+        console.log(`Fee extracted from cost structure: ${totalFee} SUN`);
+        return totalFee / 1000000; // Конвертируем SUN в TRX
+      }
+    }
+    
+    // 2. Если cost нет, проверяем прямые поля (для данных от TronGrid API)
+    const directFees = [
+      tx.net_fee,
+      tx.energy_fee,
+      tx.energy_penalty_total
+    ];
+    
+    directFees.forEach(fee => {
+      if (fee && !isNaN(parseFloat(fee)) && parseFloat(fee) > 0) {
+        totalFee += parseFloat(fee);
+      }
+    });
+    
+    // 3. Проверяем ret массив (для некоторых типов транзакций)
+    if (totalFee === 0 && tx.ret && Array.isArray(tx.ret) && tx.ret[0] && tx.ret[0].fee) {
+      const retFee = parseFloat(tx.ret[0].fee);
+      if (!isNaN(retFee) && retFee > 0) {
+        totalFee = retFee;
+      }
+    }
+    
+    // Логируем источник комиссии для отладки
+    if (totalFee > 0) {
+      console.log(`Fee extracted: ${totalFee} SUN (${totalFee / 1000000} TRX) for tx: ${tx.txID || tx.transaction_id}`);
+    }
+    
+    // Возвращаем комиссию в TRX (конвертируем из SUN)
+    return totalFee / 1000000;
+  }
+
+  /**
    * Получает транзакции для списка кошельков
    * @param wallets Массив адресов кошельков
    * @returns Observable с транзакциями
@@ -120,16 +182,8 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
             continue;
           }
           
-          // Получаем комиссию, если она доступна
-          let feeAmount = 0;
-          if (tx.net_fee) {
-            try {
-              feeAmount = parseFloat(tx.net_fee) / 1000000; // Конвертируем SUN в TRX
-              if (isNaN(feeAmount)) feeAmount = 0;
-            } catch (e) {
-              console.error('Error converting TRX fee to number:', e);
-            }
-          }
+          // Получаем комиссию из всех возможных полей для избежания дублирования
+          let feeAmount = this.extractTransactionFee(tx);
           
           // Обрабатываем различные типы транзакций (TRC20 и обычные TRX)
           if (tx.token_info) {
