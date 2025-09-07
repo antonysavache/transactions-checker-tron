@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Observable, from, forkJoin } from 'rxjs';
-import { map, catchError } from 'rxjs/operators';
+import { map, catchError, mergeMap } from 'rxjs/operators';
 import axios from 'axios';
 import TronWeb from 'tronweb';
 import { IBlockchainDataProvider } from '@shared/models/blockchain-data-provider.interface';
@@ -61,12 +61,12 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
   private extractTransactionFee(tx: any): number {
     let totalFee = 0;
     
-    // ВРЕМЕННОЕ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ
+    // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ
     const txHash = tx.txID || tx.transaction_id;
-    const isTargetTx = txHash && txHash.includes('11227923da7a5fa4cc7ea713c56a2a93ee6dd0e4f97290a198683b064f5c41bb');
+    const isUsdt = tx.token_info && tx.token_info.symbol === 'USDT';
     
-    if (isTargetTx) {
-      console.log('=== EXTRACT FEE DEBUG ===');
+    if (isUsdt) {
+      console.log('=== EXTRACT FEE DEBUG FOR USDT ===');
       console.log('Checking tx:', txHash);
       console.log('tx.cost:', tx.cost);
       console.log('tx.net_fee:', tx.net_fee);
@@ -87,6 +87,7 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
     
     // 1. Проверяем структуру cost (для данных от TronScan API)
     if (tx.cost) {
+      console.log('Found tx.cost structure:', tx.cost);
       const costFees = [
         tx.cost.net_fee_cost,     // Стоимость bandwidth
         tx.cost.energy_fee_cost,  // Стоимость energy
@@ -95,8 +96,10 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
         tx.cost.fee               // Общая комиссия
       ];
       
-      costFees.forEach(fee => {
+      costFees.forEach((fee, index) => {
+        const names = ['net_fee_cost', 'energy_fee_cost', 'energy_fee', 'energy_penalty_total', 'fee'];
         if (fee && !isNaN(parseFloat(fee)) && parseFloat(fee) > 0) {
+          console.log(`Adding fee from cost.${names[index]}: ${fee} SUN`);
           totalFee += parseFloat(fee);
         }
       });
@@ -110,14 +113,15 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
     
     // 2. Если cost нет, проверяем прямые поля (для данных от TronGrid API)
     const directFees = [
-      tx.net_fee,
-      tx.energy_fee,
-      tx.energy_penalty_total
+      { name: 'net_fee', value: tx.net_fee },
+      { name: 'energy_fee', value: tx.energy_fee },
+      { name: 'energy_penalty_total', value: tx.energy_penalty_total }
     ];
     
-    directFees.forEach(fee => {
-      if (fee && !isNaN(parseFloat(fee)) && parseFloat(fee) > 0) {
-        totalFee += parseFloat(fee);
+    directFees.forEach(({ name, value }) => {
+      if (value && !isNaN(parseFloat(value)) && parseFloat(value) > 0) {
+        console.log(`Adding fee from direct field ${name}: ${value} SUN`);
+        totalFee += parseFloat(value);
       }
     });
     
@@ -125,21 +129,20 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
     if (totalFee === 0 && tx.ret && Array.isArray(tx.ret) && tx.ret[0] && tx.ret[0].fee) {
       const retFee = parseFloat(tx.ret[0].fee);
       if (!isNaN(retFee) && retFee > 0) {
+        console.log(`Adding fee from ret[0].fee: ${retFee} SUN`);
         totalFee = retFee;
       }
     }
     
-    // Логируем источник комиссии для отладки
+    // Логируем итоговый результат
     if (totalFee > 0) {
-      console.log(`Fee extracted: ${totalFee} SUN (${totalFee / 1000000} TRX) for tx: ${tx.txID || tx.transaction_id}`);
+      console.log(`Final fee extracted: ${totalFee} SUN (${totalFee / 1000000} TRX) for tx: ${txHash}`);
+    } else if (isUsdt) {
+      console.log(`NO FEE FOUND for USDT transaction: ${txHash}`);
     }
     
-    // ДОПОЛНИТЕЛЬНОЕ ЛОГИРОВАНИЕ ДЛЯ ЦЕЛЕВОЙ ТРАНЗАКЦИИ
-    if (isTargetTx) {
-      console.log('=== FINAL FEE RESULT ===');
-      console.log('Total fee found:', totalFee, 'SUN');
-      console.log('Total fee in TRX:', totalFee / 1000000);
-      console.log('========================');
+    if (isUsdt) {
+      console.log('=== END EXTRACT FEE DEBUG ===');
     }
     
     // Возвращаем комиссию в TRX (конвертируем из SUN)
@@ -174,8 +177,8 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
       regular: regularTxs$,
       internal: internalTxs$
     }).pipe(
-      map(({ regular, internal }) => {
-        const regularTransactions = this.processTransactionsResults(regular);
+      mergeMap(async ({ regular, internal }) => {
+        const regularTransactions = await this.processTransactionsResults(regular);
         const internalTransactions = this.processInternalTransactionsResults(internal);
         
         console.log(`TronBlockchainDataProvider: Found ${regularTransactions.length} regular and ${internalTransactions.length} internal transactions`);
@@ -193,7 +196,7 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
   /**
    * Обрабатывает результаты запроса транзакций
    */
-  private processTransactionsResults(results: ITransactionsResult): CompleteTransaction[] {
+  private async processTransactionsResults(results: ITransactionsResult): Promise<CompleteTransaction[]> {
     const transactions: CompleteTransaction[] = [];
     
     // Обрабатываем результаты для каждого кошелька
@@ -215,66 +218,78 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
           // ЛОГИРУЕМ ВСЕ ХЕШИ ДЛЯ ПОИСКА НУЖНОЙ ТРАНЗАКЦИИ
           console.log(`Processing tx hash: ${txHash}`);
           
-          // ВРЕМЕННОЕ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ СТРУКТУРЫ КОМИССИИ ДЛЯ ВСЕХ USDT
+          // ОТЛАДКА ВСЕХ USDT ТРАНЗАКЦИЙ
           if (tx.token_info && tx.token_info.symbol === 'USDT') {
             console.log('=== USDT TRANSACTION DEBUG ===');
             console.log('Transaction Hash:', txHash);
             console.log('Amount:', tx.value);
             console.log('From:', tx.from);
             console.log('To:', tx.to);
-            console.log('All tx keys:', Object.keys(tx));
+            console.log('Wallet we are processing:', walletAddress);
+            console.log('Is sender (from wallet):', tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase());
+            console.log('Block timestamp:', tx.block_timestamp);
+            console.log('Type:', tx.type);
+            
+            // Проверим все поля связанные с комиссией
+            console.log('--- FEE RELATED FIELDS ---');
+            console.log('tx.cost:', tx.cost);
             console.log('tx.net_fee:', tx.net_fee);
             console.log('tx.energy_fee:', tx.energy_fee);
-            console.log('tx.cost:', tx.cost);
+            console.log('tx.energy_penalty_total:', tx.energy_penalty_total);
             console.log('tx.ret:', tx.ret);
-            // Проверяем все поля содержащие fee
-            Object.keys(tx).forEach(key => {
-              if (key.toLowerCase().includes('fee') || key.toLowerCase().includes('cost') || 
-                  key.toLowerCase().includes('energy') || key.toLowerCase().includes('net')) {
-                console.log(`tx.${key}:`, tx[key]);
-              }
+            
+            // Проверим все ключи в объекте транзакции
+            const feeKeys = Object.keys(tx).filter(key => 
+              key.toLowerCase().includes('fee') || 
+              key.toLowerCase().includes('cost') || 
+              key.toLowerCase().includes('energy') || 
+              key.toLowerCase().includes('net')
+            );
+            console.log('All fee-related keys:', feeKeys);
+            feeKeys.forEach(key => {
+              console.log(`${key}:`, tx[key]);
             });
-            console.log('==================================');
+            
+            console.log('==============================');
           }
           
           // Получаем комиссию из всех возможных полей для избежания дублирования
           let feeAmount = this.extractTransactionFee(tx);
+          
+          // Для TRC20 транзакций, если комиссия не найдена, запрашиваем детали
+          if (tx.token_info && feeAmount === 0 && tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase()) {
+            feeAmount = await this.getTransactionFee(txHash);
+          }
           
           // Обрабатываем различные типы транзакций (TRC20 и обычные TRX)
           if (tx.token_info) {
             // Это TRC20 транзакция
             const transaction = this.processTrc20Transaction(tx, walletAddress);
             
-            // Если сумма перевода 0, но есть комиссия, и это исходящая транзакция
-            if (transaction.amount <= 0 && feeAmount > 0 && tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase()) {
-              // Создаем только одну транзакцию для комиссии, используя исходный хеш
-              const feeOnlyTransaction: CompleteTransaction = {
+            console.log(`TRC20 transaction processed: ${txHash}, amount: ${transaction.amount}, fee: ${feeAmount}`);
+            console.log(`Is sender: ${tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase()}`);
+            
+            // Всегда добавляем основную транзакцию (даже если amount = 0)
+            transactions.push(transaction);
+            
+            // Добавляем комиссию отдельной записью, если это исходящая транзакция И есть комиссия
+            if (tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase() && feeAmount > 0) {
+              console.log(`Adding fee transaction for TRC20: ${feeAmount} TRX`);
+              const feeTransaction: CompleteTransaction = {
                 data: transaction.data,
                 walletSender: transaction.walletSender,
-                walletReceiver: transaction.walletReceiver || 'contract_interaction',
-                hash: transaction.hash, // Используем тот же хеш, без суффикса -fee
+                walletReceiver: 'fee_payment', // Указываем, что это оплата комиссии
+                hash: txHash + '_fee', // Добавляем суффикс для отличия от основной транзакции
                 amount: feeAmount,
-                currency: 'TRX_FEE'
+                currency: 'TRX_FEE' // Специальная валюта для комиссии
               };
               
-              transactions.push(feeOnlyTransaction);
+              transactions.push(feeTransaction);
+              console.log(`Fee transaction added: ${feeTransaction.hash}, amount: ${feeTransaction.amount}`);
             } else {
-              // Иначе добавляем обычную транзакцию
-              transactions.push(transaction);
-              
-              // И отдельную транзакцию для комиссии, если это исходящая транзакция и комиссия > 0
-              if (tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase() && feeAmount > 0) {
-                const feeTransaction: CompleteTransaction = {
-                  data: transaction.data,
-                  walletSender: transaction.walletSender,
-                  walletReceiver: transaction.walletReceiver,
-                  hash: txHash, // Используем тот же хеш
-                  amount: feeAmount,
-                  currency: 'TRX_FEE' // Специальная валюта для комиссии
-                };
-                
-                transactions.push(feeTransaction);
-              }
+              console.log(`No fee transaction added. Reasons:`);
+              console.log(`- Is sender: ${tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase()}`);
+              console.log(`- Fee amount: ${feeAmount}`);
             }
           } else if (tx.raw_data && tx.raw_data.contract) {
             // Это обычная TRX транзакция
@@ -420,8 +435,14 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
 
       console.log(`Fetching incoming TRC20 transactions for ${walletAddress}`);
       const incomingTrc20Txs = await this._fetchTransactionsWithRetry(
-        `${this.apiUrl}/v1/accounts/${walletAddress}/transactions/trc20?only_to=true&min_timestamp=${startTime}&max_timestamp=${endTime}`
+        `${this.apiUrl}/v1/accounts/${walletAddress}/transactions/trc20?only_to=true&min_timestamp=${startTime}&max_timestamp=${endTime}&limit=50`
       );
+      
+      console.log(`Incoming TRC20 response structure:`, {
+        success: incomingTrc20Txs.success,
+        dataLength: incomingTrc20Txs.data?.length || 0,
+        firstTx: incomingTrc20Txs.data?.[0] ? Object.keys(incomingTrc20Txs.data[0]) : 'no data'
+      });
       
       // ДОБАВЛЯЕМ ЗАДЕРЖКУ МЕЖДУ ЗАПРОСАМИ TRC20
       console.log(`Adding delay of ${this.requestDelay}ms between TRC20 requests`);
@@ -429,8 +450,14 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
       
       console.log(`Fetching outgoing TRC20 transactions for ${walletAddress}`);
       const outgoingTrc20Txs = await this._fetchTransactionsWithRetry(
-        `${this.apiUrl}/v1/accounts/${walletAddress}/transactions/trc20?only_from=true&min_timestamp=${startTime}&max_timestamp=${endTime}`
+        `${this.apiUrl}/v1/accounts/${walletAddress}/transactions/trc20?only_from=true&min_timestamp=${startTime}&max_timestamp=${endTime}&limit=50`
       );
+
+      console.log(`Outgoing TRC20 response structure:`, {
+        success: outgoingTrc20Txs.success,
+        dataLength: outgoingTrc20Txs.data?.length || 0,
+        firstTx: outgoingTrc20Txs.data?.[0] ? Object.keys(outgoingTrc20Txs.data[0]) : 'no data'
+      });
 
       // ДОБАВЛЯЕМ ЗАДЕРЖКУ ПЕРЕД ОБЫЧНЫМИ ТРАНЗАКЦИЯМИ
       console.log(`Adding delay of ${this.requestDelay}ms between TRC20 and normal transactions`);
@@ -486,6 +513,21 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
     }
     
     return results;
+  }
+
+  /**
+   * Получает комиссию транзакции по хешу из детального API
+   */
+  private async getTransactionFee(txHash: string): Promise<number> {
+    try {
+      const response = await this._fetchTransactionsWithRetry(
+        `${this.apiUrl}/v1/transactions/${txHash}`
+      );
+      return this.extractTransactionFee(response);
+    } catch (error) {
+      console.error(`Error fetching fee for ${txHash}:`, error);
+      return 0;
+    }
   }
 
   /**
