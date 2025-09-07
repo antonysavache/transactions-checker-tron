@@ -218,48 +218,21 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
           // ЛОГИРУЕМ ВСЕ ХЕШИ ДЛЯ ПОИСКА НУЖНОЙ ТРАНЗАКЦИИ
           console.log(`Processing tx hash: ${txHash}`);
           
-          // ОТЛАДКА ВСЕХ USDT ТРАНЗАКЦИЙ
+          // ОТЛАДКА ВСЕХ USDT ТРАНЗАКЦИЙ - ПОЛНАЯ СТРУКТУРА
           if (tx.token_info && tx.token_info.symbol === 'USDT') {
-            console.log('=== USDT TRANSACTION DEBUG ===');
-            console.log('Transaction Hash:', txHash);
-            console.log('Amount:', tx.value);
-            console.log('From:', tx.from);
-            console.log('To:', tx.to);
-            console.log('Wallet we are processing:', walletAddress);
-            console.log('Is sender (from wallet):', tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase());
-            console.log('Block timestamp:', tx.block_timestamp);
-            console.log('Type:', tx.type);
-            
-            // Проверим все поля связанные с комиссией
-            console.log('--- FEE RELATED FIELDS ---');
-            console.log('tx.cost:', tx.cost);
-            console.log('tx.net_fee:', tx.net_fee);
-            console.log('tx.energy_fee:', tx.energy_fee);
-            console.log('tx.energy_penalty_total:', tx.energy_penalty_total);
-            console.log('tx.ret:', tx.ret);
-            
-            // Проверим все ключи в объекте транзакции
-            const feeKeys = Object.keys(tx).filter(key => 
-              key.toLowerCase().includes('fee') || 
-              key.toLowerCase().includes('cost') || 
-              key.toLowerCase().includes('energy') || 
-              key.toLowerCase().includes('net')
-            );
-            console.log('All fee-related keys:', feeKeys);
-            feeKeys.forEach(key => {
-              console.log(`${key}:`, tx[key]);
-            });
-            
-            console.log('==============================');
+            console.log('=== FULL USDT TRANSACTION STRUCTURE ===');
+            console.log('COMPLETE TRANSACTION OBJECT:');
+            console.log(JSON.stringify(tx, null, 2));
+            console.log('==========================================');
           }
           
           // Получаем комиссию из всех возможных полей для избежания дублирования
           let feeAmount = this.extractTransactionFee(tx);
           
-          // Для TRC20 транзакций, если комиссия не найдена, запрашиваем детали
-          if (tx.token_info && feeAmount === 0 && tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase()) {
-            feeAmount = await this.getTransactionFee(txHash);
-          }
+          // ВРЕМЕННО ОТКЛЮЧАЕМ ЗАПРОС ПО ХЕШУ
+          // if (tx.token_info && feeAmount === 0 && tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase()) {
+          //   feeAmount = await this.getTransactionFee(txHash);
+          // }
           
           // Обрабатываем различные типы транзакций (TRC20 и обычные TRX)
           if (tx.token_info) {
@@ -520,10 +493,46 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
    */
   private async getTransactionFee(txHash: string): Promise<number> {
     try {
-      const response = await this._fetchTransactionsWithRetry(
-        `${this.apiUrl}/v1/transactions/${txHash}`
-      );
-      return this.extractTransactionFee(response);
+      console.log(`Trying to get fee for transaction: ${txHash}`);
+      
+      // Пробуем разные API endpoints
+      const endpoints = [
+        `${this.apiUrl}/v1/transactions/${txHash}`,
+        `${this.apiUrl}/wallet/gettransactionbyid`,
+        `https://apilist.tronscanapi.com/api/transaction-info?hash=${txHash}`
+      ];
+      
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying endpoint: ${endpoint}`);
+          
+          let response;
+          if (endpoint.includes('gettransactionbyid')) {
+            // POST запрос для wallet API
+            response = await axios.post(endpoint, {
+              value: txHash
+            }, { timeout: 10000 });
+          } else {
+            // GET запрос
+            response = await axios.get(endpoint, { timeout: 10000 });
+          }
+          
+          if (response.data) {
+            console.log(`Success with endpoint: ${endpoint}`);
+            const fee = this.extractTransactionFee(response.data);
+            if (fee > 0) {
+              console.log(`Fee found: ${fee} TRX`);
+              return fee;
+            }
+          }
+        } catch (error: any) {
+          console.log(`Failed with endpoint ${endpoint}: ${error.message}`);
+          continue; // Пробуем следующий endpoint
+        }
+      }
+      
+      console.log(`No fee found for transaction ${txHash} in any endpoint`);
+      return 0;
     } catch (error) {
       console.error(`Error fetching fee for ${txHash}:`, error);
       return 0;
