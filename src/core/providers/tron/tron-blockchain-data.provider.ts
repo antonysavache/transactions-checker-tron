@@ -38,6 +38,9 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
   private requestDelay: number;
   private maxRetries: number;
   private tronWeb: any;
+  
+  // Адрес контракта USDT TRC20 в Tron MainNet
+  private readonly USDT_CONTRACT_ADDRESS = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
 
   constructor(options: ITronServiceConfig = {}) {
     this.apiUrl = options.apiUrl || 'https://api.trongrid.io';
@@ -189,13 +192,6 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
         continue;
       }
       
-      // Создаем карту хешей -> транзакций для быстрого поиска комиссий
-      const txMap = new Map<string, any>();
-      walletTransactions.forEach(tx => {
-        const hash = tx.txID || tx.transaction_id;
-        if (hash) txMap.set(hash, tx);
-      });
-      
       // Обрабатываем транзакции
       for (const tx of walletTransactions) {
         try {
@@ -207,62 +203,28 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
           
           console.log(`Processing tx hash: ${txHash}`);
           
-          // Получаем комиссию
-          let feeAmount = this.extractTransactionFee(tx);
-          
-          // Если это TRC20 и комиссия не найдена, ищем в обычных транзакциях
-          if (tx.token_info && feeAmount === 0) {
-            const normalTx = txMap.get(txHash);
-            if (normalTx && !normalTx.token_info) {
-              console.log(`Found corresponding normal transaction for TRC20: ${txHash}`);
-              feeAmount = this.extractTransactionFee(normalTx);
-              console.log(`Fee from normal tx: ${feeAmount} TRX`);
-            }
-          }
-          
-          // Обрабатываем различные типы транзакций
+          // ФИЛЬТР: Обрабатываем ТОЛЬКО TRC20 транзакции
           if (tx.token_info) {
-            // TRC20 транзакция
+            // ФИЛЬТР: Обрабатываем ТОЛЬКО USDT транзакции
+            const tokenSymbol = tx.token_info.symbol?.toUpperCase();
+            const tokenContract = tx.token_info.address;
+            
+            // Проверяем и по символу, и по адресу контракта для надёжности
+            const isUSDT = tokenSymbol === 'USDT' || tokenContract === this.USDT_CONTRACT_ADDRESS;
+            
+            if (!isUSDT) {
+              console.log(`Skipping non-USDT TRC20 token: ${tokenSymbol} (${tokenContract})`);
+              continue;
+            }
+            
+            // TRC20 USDT транзакция - добавляем
             const transaction = this.processTrc20Transaction(tx, walletAddress);
             transactions.push(transaction);
             
-            // Добавляем комиссию, если это исходящая транзакция
-            if (tx.from && tx.from.toLowerCase() === walletAddress.toLowerCase() && feeAmount > 0) {
-              console.log(`Adding fee for TRC20: ${feeAmount} TRX`);
-              const feeTransaction: CompleteTransaction = {
-                data: transaction.data,
-                walletSender: transaction.walletSender,
-                walletReceiver: 'fee_payment',
-                hash: txHash + '_fee',
-                amount: feeAmount,
-                currency: 'TRX_FEE'
-              };
-              transactions.push(feeTransaction);
-            }
-          } else if (tx.raw_data && tx.raw_data.contract) {
-            // Обычная TRX транзакция (пропускаем если это дубликат TRC20)
-            const hasTokenVersion = txMap.has(txHash) && 
-              Array.from(txMap.values()).some(t => t.transaction_id === txHash && t.token_info);
-            
-            if (!hasTokenVersion) {
-              const transaction = this.processTrxTransaction(tx, walletAddress);
-              if (transaction) {
-                transactions.push(transaction);
-                
-                // Добавляем комиссию для TRX
-                if (transaction.walletSender.toLowerCase() === walletAddress.toLowerCase() && feeAmount > 0) {
-                  const feeTransaction: CompleteTransaction = {
-                    data: transaction.data,
-                    walletSender: transaction.walletSender,
-                    walletReceiver: transaction.walletReceiver,
-                    hash: txHash + '_fee',
-                    amount: feeAmount,
-                    currency: 'TRX_FEE'
-                  };
-                  transactions.push(feeTransaction);
-                }
-              }
-            }
+            console.log(`Added USDT transaction: ${txHash}, amount: ${transaction.amount}`);
+          } else {
+            // Пропускаем все TRX транзакции и комиссии
+            console.log(`Skipping TRX transaction or fee: ${txHash}`);
           }
         } catch (error) {
           console.error('Error processing transaction:', error);
@@ -270,7 +232,7 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
       }
     }
     
-    console.log(`TronBlockchainDataProvider: Processed ${transactions.length} transactions`);
+    console.log(`TronBlockchainDataProvider: Processed ${transactions.length} USDT transactions`);
     return transactions;
   }
 
@@ -609,32 +571,11 @@ export class TronBlockchainDataProvider implements IBlockchainDataProvider {
 
   /**
    * Обрабатывает результаты internal транзакций
+   * ОТКЛЮЧЕНО: Мы обрабатываем только USDT, internal транзакции это TRX
    */
   private processInternalTransactionsResults(results: IInternalTransactionsResult): CompleteTransaction[] {
-    const transactions: CompleteTransaction[] = [];
-    
-    // Обрабатываем результаты для каждого кошелька
-    for (const [walletAddress, walletTransactions] of Object.entries(results)) {
-      // Пропускаем кошельки с ошибками
-      if ('error' in walletTransactions) {
-        continue;
-      }
-      
-      // Обрабатываем internal транзакции
-      for (const tx of walletTransactions) {
-        try {
-          const transaction = this.processInternalTransaction(tx, walletAddress);
-          if (transaction) {
-            transactions.push(transaction);
-          }
-        } catch (error) {
-          console.error('Error processing internal transaction:', error);
-        }
-      }
-    }
-    
-    console.log(`TronBlockchainDataProvider: Processed ${transactions.length} internal transactions`);
-    return transactions;
+    console.log('Internal transactions processing DISABLED - only USDT transactions are processed');
+    return [];
   }
 
   /**
